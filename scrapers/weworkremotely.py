@@ -13,7 +13,7 @@ from scoring.eligibility_utils import (
 )
 from scoring.ghost_utils import compute_ghost_score
 from scoring.language_utils import detect_language
-from scoring.location_utils import normalize_location
+from scoring.location_utils import classify_geo_tier, normalize_location
 
 from .base import BaseScraper
 
@@ -94,6 +94,7 @@ class WeWorkRemotelyScraper(BaseScraper):
             "region": region,
             "remote_type": "remote",
             "location_normalized": normalize_location(region, body),
+            "geo_tier": classify_geo_tier(region, body),
             "language_detected": detect_language(body),
             "citizenship_required": detect_citizenship_required(body),
             "license_required": detect_license_required(body),

@@ -12,7 +12,7 @@ from scoring.eligibility_utils import (
 )
 from scoring.ghost_utils import compute_ghost_score
 from scoring.language_utils import detect_language
-from scoring.location_utils import normalize_location
+from scoring.location_utils import classify_geo_tier, normalize_location
 from scoring.text_utils import clean_html, normalize_unicode
 
 from .base import BaseScraper
@@ -153,6 +153,7 @@ class HackerNewsWhoIsHiringScraper(BaseScraper):
                 "thread_id": self._thread_id,
                 "remote_type": "varied",
                 "location_normalized": normalize_location(first_line, cleaned),
+                "geo_tier": classify_geo_tier(first_line, cleaned),
                 "language_detected": detect_language(cleaned),
                 "citizenship_required": detect_citizenship_required(cleaned),
                 "license_required": detect_license_required(cleaned),
