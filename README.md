@@ -75,6 +75,41 @@ Sorted job feed (highest score first). Filters at the top: minimum score, source
 
 Kanban view of your tracked applications across seven stages: Interested → Applied → Phone Screen → Interview → Offer → Rejected → Ghosted. Each card has an Edit expander where you can update notes and move it to a different stage; Save persists immediately.
 
+### ✂️ Resume Tailor
+
+![Resume Tailor](docs/screenshots/resume_tailor.png)
+
+Pick a top-20 scored item to see how your resume matches its JD keywords. Three columns surface:
+
+- **✅ Strong matches** — JD keywords mentioned ≥ 2× in your resume
+- **⚠️ Buried in resume** — listed once but worth amplifying
+- **❌ Missing skills** — top JD keywords absent from your resume
+
+The Suggested rewrites expander gives template bullet phrasings for each buried/missing term, sourced from a built-in dictionary of ~33 common skills (Tableau, Snowflake, Airflow, dbt, A/B testing, regression, etc.).
+
+### 📈 Market Insights
+
+![Market Insights](docs/screenshots/market_insights.png)
+
+Four Plotly charts on the full corpus:
+
+- Top hiring companies (horizontal bar, top 15)
+- Skill demand frequency from the keyword extracts (horizontal bar, top 20)
+- Posting velocity per day (line, last 30 days)
+- Source breakdown (pie)
+
+Plus three metric tiles up top: total items, companies hiring, freshest posting date.
+
+### ⚙️ Settings
+
+![Settings](docs/screenshots/settings.png)
+
+Three sections:
+
+1. **Profile** — read-only view of profile metadata, criteria-by-kind counts, and filter config.
+2. **Manual criteria** — add/remove `source="manual"` criteria via a form. Adding or removing triggers an immediate force re-score with a spinner.
+3. **Skills taxonomy** — read-only JSON view of `config/skills_taxonomy.yaml` so you can see what's being matched against without leaving the app.
+
 ## Architecture
 
 ```
@@ -99,5 +134,8 @@ The engine is fully source-agnostic; tables use generic names (`items`, `sources
 - **Phase 2** — scoring engine + JD keyword extraction ✅
 - **Phase 2.5** — dataset-relative score normalization ✅
 - **Phase 3a** — Streamlit dashboard MVP (Today's Queue + Pipeline) ✅
-- **Phase 3b** — Resume Tailor + Market Insights + Settings tabs
+- **Phase 3.5** — Source expansion (4 scrapers) + anti-keyword calibration ✅
+- **Phase 3.6** — Geographic + language filtering ✅
+- **Phase 3.7** — Recency filter, analytics keyword recategorization, manager penalty ✅
+- **Phase 3b** — Resume Tailor + Market Insights + Settings tabs ✅
 - **Phase 4** — GitHub Actions cron + Streamlit Cloud deploy + screenshots in this README
