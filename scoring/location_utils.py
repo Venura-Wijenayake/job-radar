@@ -163,6 +163,86 @@ def _has_any(text: str, terms: Iterable[str]) -> bool:
     return False
 
 
+# ----- Geo-tier classification (display-side preference boost) -----
+
+# Per-metro term lists. Future profiles for other home metros add entries
+# here without touching call sites.
+HOME_METRO_TERMS: dict[str, list[str]] = {
+    "sacramento": [
+        "sacramento", "roseville", "folsom", "elk grove",
+        "davis", "west sacramento", "rancho cordova",
+    ],
+}
+
+# Per-region term lists for the "regional" tier — typically the home state
+# plus its broader region (e.g. west coast for California).
+REGIONAL_TERMS_BY_REGION: dict[str, list[str]] = {
+    "california": [
+        # California state and major metros
+        "california",
+        "bay area", "san francisco", "sf", "oakland", "berkeley",
+        "palo alto", "mountain view", "san jose", "silicon valley",
+        "los angeles", "la", "san diego", "santa cruz", "monterey",
+        "fresno", "bakersfield",
+        # West Coast + nearby
+        "oregon", "portland",
+        "seattle", "washington state", "wa",
+        "nevada", "reno", "las vegas",
+    ],
+}
+
+
+def classify_geo_tier(
+    raw_location: str | None,
+    body: str | None = None,
+    home_metro: str = "sacramento",
+    home_region: str = "california",
+) -> str:
+    """Bucket a posting's location into "local", "regional", "domestic",
+    or "unknown" relative to the configured home metro/region.
+
+    Used for display-time soft boosts in the dashboard queue. Independent
+    of (and complementary to) ``normalize_location`` which handles
+    hard-filter buckets.
+
+    Body is used as a fallback only when ``raw_location`` is empty —
+    same convention as ``normalize_location``.
+    """
+    candidates: list[str] = []
+    if raw_location:
+        candidates.append(str(raw_location))
+    if body and not raw_location:
+        candidates.append(str(body))
+    if not candidates:
+        return "unknown"
+
+    text = " | ".join(candidates)
+
+    metro_terms = HOME_METRO_TERMS.get((home_metro or "").lower(), [])
+    regional_terms = REGIONAL_TERMS_BY_REGION.get(
+        (home_region or "").lower(), []
+    )
+
+    # Local: explicit home-metro city, OR remote-anywhere (when a home
+    # region is configured). Remote-anywhere is "local" because the user
+    # can take it from their home metro just fine.
+    if metro_terms and _has_any(text, metro_terms):
+        return "local"
+    if home_region and _has_any(text, ["remote"]):
+        return "local"
+
+    # Regional: home state + broader region.
+    if regional_terms and _has_any(text, regional_terms):
+        return "regional"
+
+    # Domestic: anything else US — defer to normalize_location's bucket.
+    bucket = normalize_location(raw_location, body)
+    if bucket in ("US", "Remote-US", "Remote-Global"):
+        return "domestic"
+
+    return "unknown"
+
+
 def normalize_location(
     raw: str | None, body: str | None = None
 ) -> str:
