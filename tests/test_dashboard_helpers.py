@@ -63,6 +63,9 @@ def _add_item(
     posted_at: datetime | None = None,
     location_normalized: str | None = None,
     language_detected: str | None = None,
+    citizenship_required: bool | None = None,
+    license_required: bool | None = None,
+    ghost_score: int | None = None,
 ) -> int:
     metadata: dict = {}
     if company:
@@ -71,6 +74,12 @@ def _add_item(
         metadata["location_normalized"] = location_normalized
     if language_detected is not None:
         metadata["language_detected"] = language_detected
+    if citizenship_required is not None:
+        metadata["citizenship_required"] = citizenship_required
+    if license_required is not None:
+        metadata["license_required"] = license_required
+    if ghost_score is not None:
+        metadata["ghost_score"] = ghost_score
     with get_session() as session:
         item = Item(
             source_id=source_id,
@@ -232,6 +241,91 @@ def test_get_today_queue_recency_from_profile_metadata(basic_setup):
     _add_score(b, pid, 60)
 
     result = get_today_queue("p1")  # no explicit param — read from profile
+    assert {r["item_id"] for r in result} == {a}
+
+
+def test_get_today_queue_hides_citizenship_required(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Item A", company="Acme", citizenship_required=False)
+    b = _add_item(sid, "b", "Item B", company="Beta", citizenship_required=True)
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+
+    result = get_today_queue("p1", hide_citizenship_required=True)
+    assert {r["item_id"] for r in result} == {a}
+
+
+def test_get_today_queue_shows_citizenship_required_when_disabled(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Item A", company="Acme", citizenship_required=False)
+    b = _add_item(sid, "b", "Item B", company="Beta", citizenship_required=True)
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+
+    result = get_today_queue("p1", hide_citizenship_required=False)
+    assert {r["item_id"] for r in result} == {a, b}
+
+
+def test_get_today_queue_hides_license_required(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Item A", company="Acme", license_required=False)
+    b = _add_item(sid, "b", "Item B", company="Beta", license_required=True)
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+
+    result = get_today_queue("p1", hide_license_required=True)
+    assert {r["item_id"] for r in result} == {a}
+
+
+def test_get_today_queue_hides_high_ghost_score(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Item A", company="Acme", ghost_score=10)
+    b = _add_item(sid, "b", "Item B", company="Beta", ghost_score=90)
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+
+    result = get_today_queue("p1", hide_ghost_jobs_above=80)
+    assert {r["item_id"] for r in result} == {a}
+
+
+def test_get_today_queue_shows_warning_for_medium_ghost_score(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Item A", company="Acme", ghost_score=10)
+    b = _add_item(sid, "b", "Item B", company="Beta", ghost_score=65)
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+
+    result = get_today_queue("p1", hide_ghost_jobs_above=80)
+    by_id = {r["item_id"]: r for r in result}
+    assert by_id[a]["ghost_warning"] is False
+    assert by_id[b]["ghost_warning"] is True
+
+
+def test_get_today_queue_filters_from_profile_metadata(basic_setup):
+    """When the new params are None, fall back to profile.metadata_json."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    with get_session() as session:
+        profile = session.execute(
+            select(Profile).where(Profile.id == pid)
+        ).scalar_one()
+        profile.metadata_json = {
+            "hide_citizenship_required": True,
+            "hide_license_required": False,
+            "hide_ghost_jobs_above": 50,  # tighter threshold
+        }
+        session.commit()
+
+    a = _add_item(sid, "a", "Item A", company="Acme",
+                   citizenship_required=False, ghost_score=10)
+    b = _add_item(sid, "b", "Item B", company="Beta",
+                   citizenship_required=True, ghost_score=10)
+    c = _add_item(sid, "c", "Item C", company="Gamma",
+                   citizenship_required=False, ghost_score=70)
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+    _add_score(c, pid, 50)
+
+    result = get_today_queue("p1")  # no explicit overrides
     assert {r["item_id"] for r in result} == {a}
 
 
