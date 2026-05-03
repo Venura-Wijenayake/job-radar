@@ -1,0 +1,29 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Environment / secrets
+.env
+.streamlit/secrets.toml
+
+# Local data (keep schema files, ignore databases)
+data/*.db
+data/*.db-journal
+data/*.sqlite
+data/*.sqlite3
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
