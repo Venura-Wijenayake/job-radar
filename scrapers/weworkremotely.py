@@ -7,6 +7,11 @@ from typing import Any
 import feedparser
 import httpx
 
+from scoring.eligibility_utils import (
+    detect_citizenship_required,
+    detect_license_required,
+)
+from scoring.ghost_utils import compute_ghost_score
 from scoring.language_utils import detect_language
 from scoring.location_utils import normalize_location
 
@@ -82,6 +87,7 @@ class WeWorkRemotelyScraper(BaseScraper):
 
         body = raw.get("description") or raw.get("summary") or ""
         region = raw.get("region")
+        posted_at_val = _struct_to_naive_utc(raw.get("published_parsed"))
         metadata = {
             "company": company,
             "tags": tags,
@@ -89,6 +95,16 @@ class WeWorkRemotelyScraper(BaseScraper):
             "remote_type": "remote",
             "location_normalized": normalize_location(region, body),
             "language_detected": detect_language(body),
+            "citizenship_required": detect_citizenship_required(body),
+            "license_required": detect_license_required(body),
+            "ghost_score": compute_ghost_score(
+                {
+                    "title": title,
+                    "body": body,
+                    "company": company,
+                    "posted_at": posted_at_val,
+                }
+            ),
         }
 
         return {
@@ -97,5 +113,5 @@ class WeWorkRemotelyScraper(BaseScraper):
             "body": body,
             "url": link,
             "metadata_json": metadata,
-            "posted_at": _struct_to_naive_utc(raw.get("published_parsed")),
+            "posted_at": posted_at_val,
         }

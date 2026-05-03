@@ -5,6 +5,11 @@ from typing import Any
 
 import httpx
 
+from scoring.eligibility_utils import (
+    detect_citizenship_required,
+    detect_license_required,
+)
+from scoring.ghost_utils import compute_ghost_score
 from scoring.language_utils import detect_language
 from scoring.location_utils import normalize_location
 
@@ -74,6 +79,8 @@ class RemotiveScraper(BaseScraper):
 
         body = raw.get("description") or ""
         location_raw = raw.get("candidate_required_location")
+        title = raw["title"]
+        posted_at_val = _parse_iso(raw.get("publication_date"))
         metadata = {
             "company": raw.get("company_name"),
             "location": location_raw,
@@ -84,13 +91,23 @@ class RemotiveScraper(BaseScraper):
             "remote_type": "remote",
             "location_normalized": normalize_location(location_raw, body),
             "language_detected": detect_language(body),
+            "citizenship_required": detect_citizenship_required(body),
+            "license_required": detect_license_required(body),
+            "ghost_score": compute_ghost_score(
+                {
+                    "title": title,
+                    "body": body,
+                    "company": raw.get("company_name"),
+                    "posted_at": posted_at_val,
+                }
+            ),
         }
 
         return {
             "external_id": str(raw["id"]),
-            "title": raw["title"],
+            "title": title,
             "body": body,
             "url": raw.get("url") or "",
             "metadata_json": metadata,
-            "posted_at": _parse_iso(raw.get("publication_date")),
+            "posted_at": posted_at_val,
         }

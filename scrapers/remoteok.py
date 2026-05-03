@@ -5,6 +5,11 @@ from typing import Any
 
 import httpx
 
+from scoring.eligibility_utils import (
+    detect_citizenship_required,
+    detect_license_required,
+)
+from scoring.ghost_utils import compute_ghost_score
 from scoring.language_utils import detect_language
 from scoring.location_utils import normalize_location
 
@@ -56,21 +61,36 @@ class RemoteOKScraper(BaseScraper):
                 posted_at = None
 
         body = raw.get("description") or ""
+        title = raw["position"]
+        salary_min = raw.get("salary_min")
+        salary_max = raw.get("salary_max")
         metadata = {
             "company": raw.get("company"),
             "location": raw.get("location"),
-            "salary_min": raw.get("salary_min"),
-            "salary_max": raw.get("salary_max"),
+            "salary_min": salary_min,
+            "salary_max": salary_max,
             "tags": raw.get("tags") or [],
             "logo": raw.get("logo") or raw.get("company_logo"),
             "remote_type": "remote",
             "location_normalized": normalize_location(raw.get("location"), body),
             "language_detected": detect_language(body),
+            "citizenship_required": detect_citizenship_required(body),
+            "license_required": detect_license_required(body),
+            "ghost_score": compute_ghost_score(
+                {
+                    "title": title,
+                    "body": body,
+                    "company": raw.get("company"),
+                    "posted_at": posted_at,
+                    "salary_min": salary_min,
+                    "salary_max": salary_max,
+                }
+            ),
         }
 
         return {
             "external_id": str(raw["id"]),
-            "title": raw["position"],
+            "title": title,
             "body": body,
             "url": raw.get("url") or f"https://remoteok.com/remote-jobs/{raw['id']}",
             "metadata_json": metadata,

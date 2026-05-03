@@ -6,6 +6,11 @@ from typing import Any
 
 import httpx
 
+from scoring.eligibility_utils import (
+    detect_citizenship_required,
+    detect_license_required,
+)
+from scoring.ghost_utils import compute_ghost_score
 from scoring.language_utils import detect_language
 from scoring.location_utils import normalize_location
 from scoring.text_utils import clean_html, normalize_unicode
@@ -149,6 +154,16 @@ class HackerNewsWhoIsHiringScraper(BaseScraper):
                 "remote_type": "varied",
                 "location_normalized": normalize_location(first_line, cleaned),
                 "language_detected": detect_language(cleaned),
+                "citizenship_required": detect_citizenship_required(cleaned),
+                "license_required": detect_license_required(cleaned),
+                "ghost_score": compute_ghost_score(
+                    {
+                        "title": title,
+                        "body": text,
+                        "company": company,
+                        "posted_at": posted_at,
+                    }
+                ),
             },
             "posted_at": posted_at,
         }

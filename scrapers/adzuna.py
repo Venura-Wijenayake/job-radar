@@ -8,6 +8,11 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
+from scoring.eligibility_utils import (
+    detect_citizenship_required,
+    detect_license_required,
+)
+from scoring.ghost_utils import compute_ghost_score
 from scoring.language_utils import detect_language
 from scoring.location_utils import normalize_location
 
@@ -169,11 +174,14 @@ class AdzunaScraper(BaseScraper):
             else None
         )
 
+        salary_min = raw.get("salary_min")
+        salary_max = raw.get("salary_max")
+        posted_at_val = _parse_iso(raw.get("created"))
         metadata = {
             "company": company,
             "location": location_str,
-            "salary_min": raw.get("salary_min"),
-            "salary_max": raw.get("salary_max"),
+            "salary_min": salary_min,
+            "salary_max": salary_max,
             "category": category,
             "contract_type": raw.get("contract_type"),
             "contract_time": raw.get("contract_time"),
@@ -181,6 +189,18 @@ class AdzunaScraper(BaseScraper):
             "remote_type": "varied",
             "location_normalized": normalize_location(location_str, body),
             "language_detected": detect_language(body),
+            "citizenship_required": detect_citizenship_required(body),
+            "license_required": detect_license_required(body),
+            "ghost_score": compute_ghost_score(
+                {
+                    "title": title,
+                    "body": body,
+                    "company": company,
+                    "posted_at": posted_at_val,
+                    "salary_min": salary_min,
+                    "salary_max": salary_max,
+                }
+            ),
         }
 
         return {
@@ -189,5 +209,5 @@ class AdzunaScraper(BaseScraper):
             "body": body,
             "url": raw.get("redirect_url") or "",
             "metadata_json": metadata,
-            "posted_at": _parse_iso(raw.get("created")),
+            "posted_at": posted_at_val,
         }
