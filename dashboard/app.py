@@ -45,10 +45,14 @@ PIPELINE_LABELS: dict[str, str] = {
 
 
 def _score_badge(score: float) -> str:
+    # Streamlit's :color-background[] directive only supports a fixed set of
+    # color names — as of 1.40.2 the valid list is
+    # [blue, green, orange, red, violet, gray, grey, rainbow]. "yellow" is
+    # not recognized, so use "orange" for the 50-74 range.
     if score >= 75:
         return f":green-background[**{score:.0f}**]"
     if score >= 50:
-        return f":yellow-background[**{score:.0f}**]"
+        return f":orange-background[**{score:.0f}**]"
     if score >= 25:
         return f":gray-background[**{score:.0f}**]"
     return f":red-background[**{score:.0f}**]"
