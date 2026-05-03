@@ -299,6 +299,12 @@ with tab_queue:
                 ]
                 st.caption(" • ".join(meta_parts))
 
+                geo_tier = item.get("geo_tier")
+                if geo_tier == "local":
+                    st.markdown(":green-background[📍 local]")
+                elif geo_tier == "regional":
+                    st.markdown(":blue-background[📍 regional]")
+
             if item["top_matched_terms"]:
                 pills = " ".join(
                     f":gray-background[{t}]" for t in item["top_matched_terms"]

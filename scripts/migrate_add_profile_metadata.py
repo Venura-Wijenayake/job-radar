@@ -21,6 +21,11 @@ DEFAULT_PROFILE_META = {
     "hide_citizenship_required": True,
     "hide_license_required": True,
     "hide_ghost_jobs_above": 80,
+    "home_metro": "sacramento",
+    "home_region": "california",
+    "geo_boost_local": 20,
+    "geo_boost_regional": 10,
+    "geo_boost_domestic": 0,
 }
 
 

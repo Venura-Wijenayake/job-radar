@@ -154,6 +154,14 @@ def get_today_queue(
                 profile_meta.get("hide_ghost_jobs_above", 80)
             )
 
+        # Geo-tier display boosts (Phase 4.1) — soft re-rank, never persisted.
+        boost_by_tier = {
+            "local": int(profile_meta.get("geo_boost_local", 20)),
+            "regional": int(profile_meta.get("geo_boost_regional", 10)),
+            "domestic": int(profile_meta.get("geo_boost_domestic", 0)),
+            "unknown": 0,
+        }
+
         excluded_enums = [TrackingStatus(s) for s in exclude_statuses]
         excluded_item_ids = (
             select(Tracking.item_id)
@@ -162,6 +170,10 @@ def get_today_queue(
         )
 
         recency_cutoff = _now_utc_naive() - timedelta(days=posted_after_days)
+
+        # Fetch a wider slice so the geo-boost re-rank can pull local
+        # items up from below the limit's natural score cutoff.
+        sql_limit = max(limit * 3, 200)
 
         rows = session.execute(
             select(Score, Item, Source, Tracking)
@@ -180,7 +192,7 @@ def get_today_queue(
                 or_(Item.posted_at >= recency_cutoff, Item.posted_at.is_(None))
             )
             .order_by(Score.score.desc(), Item.posted_at.desc())
-            .limit(limit)
+            .limit(sql_limit)
         ).all()
 
         result: list[dict[str, Any]] = []
@@ -208,6 +220,11 @@ def get_today_queue(
                 continue
 
             ghost_warning = 50 <= ghost_score < hide_ghost_jobs_above
+
+            geo_tier = md.get("geo_tier") or "unknown"
+            geo_boost = boost_by_tier.get(geo_tier, 0)
+            score_value = score.score or 0.0
+            display_score = score_value + geo_boost
 
             top_three = sorted(
                 score.matched_terms_json or [],
@@ -237,13 +254,22 @@ def get_today_queue(
                     "license_required": license_req,
                     "ghost_score": ghost_score,
                     "ghost_warning": ghost_warning,
+                    "geo_tier": geo_tier,
+                    "geo_boost_applied": geo_boost,
+                    "display_score": display_score,
                     "similar_count": 0,
                     "similar_item_ids": [],
                 }
             )
 
         if not collapse_duplicates:
-            return result
+            result.sort(
+                key=lambda x: (
+                    -(x.get("display_score") or 0),
+                    -(x["posted_at"].timestamp() if x["posted_at"] else 0),
+                )
+            )
+            return result[:limit]
 
         # Group by (title, company); items with empty company stay unique.
         grouped: dict[tuple[str, str], dict[str, Any]] = {}
@@ -261,16 +287,17 @@ def get_today_queue(
             else:
                 grouped[key] = entry
 
-        # SQL ordering preserved by dict insertion order; re-sort defensively
-        # in case the highest-scoring per group needs to bubble up.
+        # Sort by display_score (= raw score + geo boost) so local items
+        # bubble up. SQL pre-ordered by raw score; we re-sort here on the
+        # boosted value and trim to the caller's requested limit.
         deduped = list(grouped.values())
         deduped.sort(
             key=lambda x: (
-                -(x["score"] or 0),
+                -(x.get("display_score") or 0),
                 -(x["posted_at"].timestamp() if x["posted_at"] else 0),
             )
         )
-        return deduped
+        return deduped[:limit]
 
 
 # ----- Pipeline -----

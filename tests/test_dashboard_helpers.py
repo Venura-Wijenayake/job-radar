@@ -66,6 +66,7 @@ def _add_item(
     citizenship_required: bool | None = None,
     license_required: bool | None = None,
     ghost_score: int | None = None,
+    geo_tier: str | None = None,
 ) -> int:
     metadata: dict = {}
     if company:
@@ -80,6 +81,8 @@ def _add_item(
         metadata["license_required"] = license_required
     if ghost_score is not None:
         metadata["ghost_score"] = ghost_score
+    if geo_tier is not None:
+        metadata["geo_tier"] = geo_tier
     with get_session() as session:
         item = Item(
             source_id=source_id,
@@ -203,6 +206,62 @@ def test_get_today_queue_filters_unknown_location_lenient(basic_setup):
     result = get_today_queue("p1", allowed_locations=["US"])
     assert len(result) == 2
     assert {r["item_id"] for r in result} == {a, b}
+
+
+def test_geo_boost_local_outranks_higher_score_domestic(basic_setup):
+    """Local item raw 60 + boost 20 = 80 should outrank domestic item
+    raw 70 + boost 0 = 70."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    with get_session() as session:
+        profile = session.execute(
+            select(Profile).where(Profile.id == pid)
+        ).scalar_one()
+        profile.metadata_json = {
+            "geo_boost_local": 20,
+            "geo_boost_regional": 10,
+            "geo_boost_domestic": 0,
+        }
+        session.commit()
+
+    a = _add_item(sid, "a", "Local Item", company="Acme", geo_tier="local")
+    b = _add_item(sid, "b", "Domestic Item", company="Beta", geo_tier="domestic")
+    _add_score(a, pid, 60)
+    _add_score(b, pid, 70)
+
+    result = get_today_queue("p1")
+    item_ids = [r["item_id"] for r in result]
+    assert item_ids[0] == a, f"expected local first; got {item_ids}"
+    assert item_ids[1] == b
+    # display_score reflects the boost
+    by_id = {r["item_id"]: r for r in result}
+    assert by_id[a]["display_score"] == 80
+    assert by_id[a]["geo_boost_applied"] == 20
+    assert by_id[b]["display_score"] == 70
+    assert by_id[b]["geo_boost_applied"] == 0
+
+
+def test_geo_boost_does_not_modify_db_score(basic_setup):
+    """The persisted scores.score row should be unchanged after a queue
+    call, even though the returned dict has a boosted display_score."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    with get_session() as session:
+        profile = session.execute(
+            select(Profile).where(Profile.id == pid)
+        ).scalar_one()
+        profile.metadata_json = {"geo_boost_local": 20}
+        session.commit()
+
+    a = _add_item(sid, "a", "Local", company="Acme", geo_tier="local")
+    _add_score(a, pid, 70.0)
+
+    result = get_today_queue("p1")
+    assert result[0]["score"] == 70.0
+    assert result[0]["display_score"] == 90.0
+    assert result[0]["geo_boost_applied"] == 20
+
+    with get_session() as session:
+        score_row = session.execute(select(Score)).scalar_one()
+    assert score_row.score == 70.0  # DB row unchanged
 
 
 def test_get_today_queue_filters_old_items(basic_setup):
