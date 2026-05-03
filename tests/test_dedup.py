@@ -7,6 +7,7 @@ from sqlalchemy import select
 from db.database import get_session
 from db.models import Item
 from db.seed import seed_sources
+from scrapers.base import _normalized_content_hash
 from scrapers.remoteok import RemoteOKScraper
 
 SAMPLE_API_RESPONSE = [
@@ -123,3 +124,30 @@ def test_content_hash_dedup_catches_cross_source_duplicates(
     assert s1["new"] == 1
     assert s2["new"] == 0
     assert s2["duplicates"] == 1
+
+
+def test_normalized_hash_ignores_html_and_whitespace_formatting():
+    """Identical text wrapped in different HTML / whitespace should hash
+    to the same value so cross-source duplicates collapse cleanly."""
+    h_plain = _normalized_content_hash(
+        "Lead Analytics Engineer", "Monzo", "<p>Hello world</p>"
+    )
+    h_extra_space = _normalized_content_hash(
+        "Lead Analytics Engineer", "Monzo", "<p>  Hello   world  </p>"
+    )
+    h_different_tag = _normalized_content_hash(
+        "Lead Analytics Engineer", "Monzo", "<div>\n\nHello world\n\n</div>"
+    )
+    h_uppercased = _normalized_content_hash(
+        "LEAD ANALYTICS ENGINEER", "MONZO", "<p>HELLO WORLD</p>"
+    )
+
+    assert h_plain == h_extra_space
+    assert h_plain == h_different_tag
+    assert h_plain == h_uppercased
+
+    # Sanity: actually different content still produces a different hash.
+    h_different_body = _normalized_content_hash(
+        "Lead Analytics Engineer", "Monzo", "<p>Different content entirely.</p>"
+    )
+    assert h_plain != h_different_body

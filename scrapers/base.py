@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any
@@ -9,11 +10,27 @@ from sqlalchemy import select
 
 from db.database import get_session
 from db.models import Item, Source
+from scoring.text_utils import clean_html, normalize_unicode
 
 
-def content_hash(title: str, body: str, company: str | None) -> str:
-    payload = f"{title or ''}\n{body or ''}\n{company or ''}".encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+def _normalized_content_hash(title: str, company: str | None, body: str) -> str:
+    """Content hash resilient to HTML/whitespace formatting noise.
+
+    Strips HTML from body, unicode-normalizes, lowercases, collapses
+    whitespace, and truncates the body to its first 500 cleaned chars
+    so trailing boilerplate variations (footer links, "Apply now"
+    banners) don't break the hash. Two items posted to different
+    sources with the same job description but slightly different
+    HTML wrapping will hash identically.
+    """
+    cleaned_body = normalize_unicode(clean_html(body or ""))
+    body_part = cleaned_body[:500]
+    title_part = normalize_unicode(title or "")
+    company_part = normalize_unicode(company or "")
+
+    combined = f"{title_part}\n{company_part}\n{body_part}"
+    normalized = re.sub(r"\s+", " ", combined.lower()).strip()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _now_utc_naive() -> datetime:
@@ -71,7 +88,9 @@ class BaseScraper(ABC):
                         continue
 
                     company = (norm.get("metadata_json") or {}).get("company")
-                    h = content_hash(norm["title"], norm.get("body", ""), company)
+                    h = _normalized_content_hash(
+                        norm["title"], company, norm.get("body", "")
+                    )
 
                     # Primary dedup: same source + external_id
                     existing = session.execute(
