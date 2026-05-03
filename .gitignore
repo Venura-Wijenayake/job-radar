@@ -10,9 +10,13 @@ __pycache__/
 .env.local
 .streamlit/secrets.toml
 
-# Local data — keep folder shape, ignore actual contents
-data/*.db
+# Local data
+# job_radar.db is TRACKED — daily-scrape cron commits an updated copy.
+# Run scripts/sanitize_db_for_cron.py before the first commit to strip
+# personal artifacts (tracking, applications, resume text).
 data/*.db-journal
+data/*.db.local_backup
+data/cron_summary.txt
 data/resumes/*
 !data/resumes/.gitkeep
 
