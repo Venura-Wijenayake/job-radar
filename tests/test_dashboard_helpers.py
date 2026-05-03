@@ -44,7 +44,16 @@ def _add_item(
     body: str = "",
     company: str | None = None,
     posted_at: datetime | None = None,
+    location_normalized: str | None = None,
+    language_detected: str | None = None,
 ) -> int:
+    metadata: dict = {}
+    if company:
+        metadata["company"] = company
+    if location_normalized is not None:
+        metadata["location_normalized"] = location_normalized
+    if language_detected is not None:
+        metadata["language_detected"] = language_detected
     with get_session() as session:
         item = Item(
             source_id=source_id,
@@ -55,7 +64,7 @@ def _add_item(
             content_hash=f"h-{ext_id}",
             scraped_at=_now(),
             posted_at=posted_at,
-            metadata_json={"company": company} if company else {},
+            metadata_json=metadata,
         )
         session.add(item)
         session.commit()
@@ -137,6 +146,50 @@ def test_get_today_queue_excludes_hidden_and_skipped(basic_setup):
     assert items[1] not in item_ids
     assert items[2] in item_ids
     assert items[3] in item_ids
+
+
+def test_get_today_queue_filters_by_location(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Item A", company="Acme", location_normalized="US")
+    b = _add_item(sid, "b", "Item B", company="Beta", location_normalized="US")
+    c = _add_item(sid, "c", "Item C", company="Brasil Inc", location_normalized="Brazil")
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+    _add_score(c, pid, 50)
+
+    result = get_today_queue("p1", allowed_locations=["US"])
+    assert len(result) == 2
+    assert {r["item_id"] for r in result} == {a, b}
+
+
+def test_get_today_queue_filters_unknown_location_lenient(basic_setup):
+    """Items with location_normalized='Unknown' (or missing) are kept even
+    when allowed_locations is set. Better to surface ambiguous items than
+    hide them."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Item A", company="Acme", location_normalized="US")
+    b = _add_item(sid, "b", "Item B", company="Beta", location_normalized="Unknown")
+    c = _add_item(sid, "c", "Item C", company="Gamma", location_normalized="Brazil")
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+    _add_score(c, pid, 50)
+
+    result = get_today_queue("p1", allowed_locations=["US"])
+    assert len(result) == 2
+    assert {r["item_id"] for r in result} == {a, b}
+
+
+def test_get_today_queue_english_only_drops_other(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Item A", company="Acme", language_detected="en")
+    b = _add_item(sid, "b", "Item B", company="Beta", language_detected="other")
+    c = _add_item(sid, "c", "Item C", company="Gamma", language_detected="mixed")
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+    _add_score(c, pid, 50)
+
+    result = get_today_queue("p1", english_only=True)
+    assert {r["item_id"] for r in result} == {a, c}
 
 
 def test_collapse_duplicates_groups_by_title_company(basic_setup):

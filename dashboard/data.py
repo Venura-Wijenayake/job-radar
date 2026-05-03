@@ -66,6 +66,8 @@ def get_today_queue(
     limit: int = 50,
     exclude_statuses: Optional[list[str]] = None,
     collapse_duplicates: bool = True,
+    allowed_locations: Optional[list[str]] = None,
+    english_only: Optional[bool] = None,
 ) -> list[dict[str, Any]]:
     """Highest-scoring items for a profile, with the current tracking status
     inlined. Items with status in ``exclude_statuses`` are filtered out.
@@ -76,8 +78,22 @@ def get_today_queue(
     suppressed siblings on ``similar_count`` and their ids on
     ``similar_item_ids`` so a future "show all" UI can expand them.
     Items with empty/missing company are treated as unique and never
-    grouped — different one-person companies posting to the same job
-    title shouldn't be collapsed.
+    grouped.
+
+    Filters:
+      ``allowed_locations`` — list of normalized-location buckets to keep.
+        Items whose ``location_normalized`` is in the list OR is
+        ``"Unknown"`` survive (lenient: don't hide ambiguous cases).
+        When None, falls back to the profile's
+        ``metadata_json["allowed_locations"]`` if present, otherwise no
+        location filter is applied.
+      ``english_only`` — when True, drops items whose
+        ``language_detected`` is ``"other"``. ``"en"`` and ``"mixed"`` are
+        kept. When None, falls back to the profile's
+        ``metadata_json["english_only"]`` if present, otherwise False.
+
+    Filtering happens before duplicate-collapsing so the
+    similar_count reflects only items that survived the filters.
     """
     if exclude_statuses is None:
         exclude_statuses = HIDDEN_FROM_QUEUE
@@ -86,6 +102,13 @@ def get_today_queue(
         profile = _profile_by_name(session, profile_name)
         if profile is None:
             return []
+
+        # Resolve filter defaults from profile metadata when not given explicitly.
+        profile_meta = profile.metadata_json or {}
+        if allowed_locations is None:
+            allowed_locations = profile_meta.get("allowed_locations")
+        if english_only is None:
+            english_only = bool(profile_meta.get("english_only", False))
 
         excluded_enums = [TrackingStatus(s) for s in exclude_statuses]
         excluded_item_ids = (
@@ -114,6 +137,16 @@ def get_today_queue(
         result: list[dict[str, Any]] = []
         for score, item, source, tracking in rows:
             md = item.metadata_json or {}
+
+            location_norm = md.get("location_normalized") or "Unknown"
+            language_det = md.get("language_detected") or "en"
+
+            if allowed_locations is not None:
+                if location_norm not in allowed_locations and location_norm != "Unknown":
+                    continue
+            if english_only and language_det == "other":
+                continue
+
             top_three = sorted(
                 score.matched_terms_json or [],
                 key=lambda t: t.get("contribution", 0),
@@ -125,6 +158,8 @@ def get_today_queue(
                     "title": item.title,
                     "company": md.get("company"),
                     "location": md.get("location"),
+                    "location_normalized": location_norm,
+                    "language_detected": language_det,
                     "posted_at": item.posted_at,
                     "scraped_at": item.scraped_at,
                     "source_name": source.name,
