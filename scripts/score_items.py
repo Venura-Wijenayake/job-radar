@@ -41,9 +41,13 @@ def _print_top(profile_id: int, n: int = 10) -> None:
             f"{t['term']}({t['contribution']:.0f}{'*' if t.get('in_title') else ''})"
             for t in terms
         ) or "—"
-        title = (item.title or "")[:55]
+        title = (item.title or "")[:50]
         company = company[:22]
-        print(f"  {i:2d}. [{score_row.score:5.1f}]  {title:<55}  @ {company:<22}  {terms_str}")
+        raw = score_row.raw_score if score_row.raw_score is not None else 0.0
+        print(
+            f"  {i:2d}. [{score_row.score:5.1f}] (raw {raw:6.1f})  "
+            f"{title:<50}  @ {company:<22}  {terms_str}"
+        )
 
 
 def _print_bottom(profile_id: int, n: int = 3) -> None:

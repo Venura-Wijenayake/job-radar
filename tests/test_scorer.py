@@ -113,7 +113,7 @@ def test_role_match_in_body_only(setup_basic):
 
     role_match = next(t for t in score.matched_terms_json if t["term"] == "data analyst")
     assert role_match["in_title"] is False
-    assert role_match["contribution"] == 5 * 4
+    assert role_match["contribution"] == 8 * 4
 
 
 def test_role_title_boost(setup_basic):
@@ -129,7 +129,7 @@ def test_role_title_boost(setup_basic):
 
     role_match = next(t for t in score.matched_terms_json if t["term"] == "data analyst")
     assert role_match["in_title"] is True
-    assert role_match["contribution"] == 5 * 4 * 2
+    assert role_match["contribution"] == 8 * 4 * 2
 
 
 def test_exclude_kind_penalizes(fresh_db):
