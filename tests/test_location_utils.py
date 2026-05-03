@@ -55,6 +55,23 @@ def test_normalize_location_eu():
     assert normalize_location("Amsterdam") == "EU"
 
 
+def test_normalize_location_pakistan():
+    assert normalize_location("Rawalpindi, Pakistan") == "Asia-Other"
+    assert normalize_location("Karachi") == "Asia-Other"
+    assert normalize_location("Lahore, Pakistan") == "Asia-Other"
+
+
+def test_normalize_location_japan():
+    assert normalize_location("Tokyo, Japan") == "Asia-Other"
+    assert normalize_location("Japan") == "Asia-Other"
+
+
+def test_normalize_location_south_asia_extras():
+    assert normalize_location("Dhaka, Bangladesh") == "Asia-Other"
+    assert normalize_location("Colombo, Sri Lanka") == "Asia-Other"
+    assert normalize_location("Kathmandu, Nepal") == "Asia-Other"
+
+
 def test_state_code_does_not_match_inside_words():
     """'CA' as a state code shouldn't match inside 'Canada' or 'capital'."""
     assert normalize_location("Canada") == "Canada"

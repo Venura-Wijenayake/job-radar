@@ -124,11 +124,17 @@ LOCATION_RULES: list[tuple[str, list[str]]] = [
     (
         "Asia-Other",
         [
+            # South Asia (excluding India, which has its own bucket)
+            "pakistan", "bangladesh", "sri lanka", "nepal",
+            "karachi", "lahore", "dhaka", "colombo",
+            # Southeast Asia
             "philippines", "vietnam", "indonesia", "singapore",
-            "thailand", "malaysia", "japan", "south korea",
-            "china", "hong kong", "taiwan", "tokyo", "seoul",
-            "shanghai", "beijing", "manila", "jakarta",
-            "ho chi minh", "bangkok", "kuala lumpur",
+            "thailand", "malaysia", "cambodia", "laos", "myanmar",
+            "manila", "jakarta", "ho chi minh", "bangkok",
+            "kuala lumpur",
+            # East Asia
+            "japan", "south korea", "china", "hong kong", "taiwan",
+            "tokyo", "seoul", "shanghai", "beijing", "taipei",
         ],
     ),
     (

@@ -3,6 +3,11 @@
 For every Item where the new metadata fields are missing, run them
 through normalize_location() and detect_language() and persist the
 result. Idempotent — items already annotated are skipped.
+
+Pass ``--force`` to re-classify every item regardless of existing
+annotation. Use this after expanding the location taxonomy so that
+items previously tagged "Unknown" get re-evaluated against the new
+rules.
 """
 from __future__ import annotations
 
@@ -21,6 +26,8 @@ from scoring.location_utils import normalize_location
 
 
 def main() -> None:
+    force = "--force" in sys.argv[1:]
+
     backfilled = 0
     skipped = 0
     location_counts: Counter[str] = Counter()
@@ -31,7 +38,10 @@ def main() -> None:
 
         for item in items:
             md = dict(item.metadata_json or {})
-            if "location_normalized" in md and "language_detected" in md:
+            already_annotated = (
+                "location_normalized" in md and "language_detected" in md
+            )
+            if already_annotated and not force:
                 skipped += 1
                 location_counts[md["location_normalized"]] += 1
                 language_counts[md["language_detected"]] += 1
@@ -48,7 +58,8 @@ def main() -> None:
 
         session.commit()
 
-    print(f"Backfilled {backfilled} items, {skipped} skipped (already annotated).")
+    label = "re-classified" if force else "backfilled"
+    print(f"{label.capitalize()} {backfilled} items, {skipped} skipped.")
     print()
     print("Location distribution:")
     for loc, n in location_counts.most_common():
