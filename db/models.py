@@ -97,6 +97,7 @@ class Score(Base):
     item_id: Mapped[int] = mapped_column(ForeignKey("items.id"), nullable=False)
     profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"), nullable=False)
     score: Mapped[float] = mapped_column(Float, nullable=False)
+    raw_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     matched_terms_json: Mapped[Optional[list[Any]]] = mapped_column(JSON, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
