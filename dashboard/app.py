@@ -22,10 +22,16 @@ import streamlit as st  # noqa: E402
 
 from dashboard.data import (  # noqa: E402
     PIPELINE_STATUSES,
+    add_manual_criterion,
     get_pipeline,
+    get_profile_summary,
     get_profiles,
+    get_resume_tailor_view,
     get_stats,
     get_today_queue,
+    list_manual_criteria,
+    list_taxonomy,
+    remove_manual_criterion,
     set_status,
     update_notes,
 )
@@ -192,7 +198,15 @@ profile_id = _cached_profile_id(profile_name)
 
 # ----- Tabs -----
 
-tab_queue, tab_pipeline = st.tabs(["📋 Today's Queue", "📊 Pipeline"])
+tab_queue, tab_pipeline, tab_tailor, tab_insights, tab_settings = st.tabs(
+    [
+        "📋 Today's Queue",
+        "📊 Pipeline",
+        "✂️ Resume Tailor",
+        "📈 Market Insights",
+        "⚙️ Settings",
+    ]
+)
 
 
 # ----- Today's Queue -----
@@ -370,3 +384,110 @@ with tab_pipeline:
                             )
                             if ok:
                                 st.rerun()
+
+
+# ----- Resume Tailor -----
+
+with tab_tailor:
+    try:
+        queue_for_tailor = _cached_queue(profile_name)
+    except Exception as exc:
+        st.error(f"Failed to load items: {exc}")
+        queue_for_tailor = []
+
+    if not queue_for_tailor:
+        st.info("Score some items first (run scripts/score_items.py).")
+    else:
+        # Top 20 by score
+        top20 = queue_for_tailor[:20]
+        options: dict[str, int] = {}
+        for q in top20:
+            label = (
+                f"[{q['score']:.0f}] {(q['title'] or '')[:55]} "
+                f"@ {(q['company'] or '?')[:25]}"
+            )
+            options[label] = q["item_id"]
+
+        selected_label = st.selectbox(
+            "Pick an item to tailor your resume for",
+            list(options.keys()),
+            index=0,
+            key="tailor_select",
+        )
+        selected_id = options[selected_label]
+
+        try:
+            view = get_resume_tailor_view(selected_id, profile_name)
+        except Exception as exc:
+            st.error(f"Failed to build tailor view: {exc}")
+            view = {}
+
+        if view:
+            it = view["item"]
+            st.markdown(
+                f"### [{it['title']}]({it['url']})"
+                if it.get("url")
+                else f"### {it['title']}"
+            )
+            st.caption(
+                f"{it.get('company') or '?'} • "
+                f"{it.get('location_normalized') or 'Unknown'} • "
+                f"score {it.get('score', 0):.1f}"
+            )
+
+            diff = view["diff"]
+            col_strong, col_buried, col_missing = st.columns(3)
+            with col_strong:
+                st.markdown(f"### ✅ Strong matches ({len(diff['have_strong'])})")
+                st.caption("Mentioned ≥ 2× in your resume")
+                if not diff["have_strong"]:
+                    st.write("_None._")
+                for kw in diff["have_strong"]:
+                    st.markdown(
+                        f":green-background[{kw['term']}] "
+                        f"_(×{kw['resume_frequency']})_"
+                    )
+            with col_buried:
+                st.markdown(f"### ⚠️ Buried in resume ({len(diff['have_buried'])})")
+                st.caption("Listed but not emphasized — consider amplifying")
+                if not diff["have_buried"]:
+                    st.write("_None._")
+                for kw in diff["have_buried"]:
+                    st.markdown(
+                        f":orange-background[{kw['term']}] "
+                        f"_(×{kw['resume_frequency']})_"
+                    )
+            with col_missing:
+                st.markdown(f"### ❌ Missing skills ({len(diff['missing'])})")
+                st.caption("Top JD keywords not on your resume")
+                if not diff["missing"]:
+                    st.write("_None._")
+                for kw in diff["missing"]:
+                    st.markdown(f":red-background[{kw['term']}]")
+
+            suggestions = view["suggested_rewrites"]
+            if suggestions:
+                with st.expander(
+                    f"Suggested rewrites ({len(suggestions)})", expanded=True
+                ):
+                    for rw in suggestions:
+                        with st.container(border=True):
+                            badge = (
+                                ":orange-background[buried]"
+                                if rw["category"] == "buried"
+                                else ":red-background[missing]"
+                            )
+                            st.markdown(f"**{rw['term']}** &nbsp; {badge}")
+                            st.write(rw["example_phrasing"])
+
+
+# ----- Market Insights (placeholder — populated in next chunk) -----
+
+with tab_insights:
+    st.info("Market Insights tab — coming up next.")
+
+
+# ----- Settings (placeholder — populated in next chunk) -----
+
+with tab_settings:
+    st.info("Settings tab — coming up next.")

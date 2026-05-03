@@ -9,17 +9,30 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from collections import Counter
+from pathlib import Path
+
+import yaml
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from db.database import get_session
 from db.models import (
+    Criterion,
     Item,
+    KeywordExtract,
     Profile,
     Score,
     Source,
     Tracking,
     TrackingStatus,
+)
+from scoring.resume_parser import TAXONOMY_PATH, load_taxonomy
+from scoring.text_utils import (
+    clean_html,
+    find_term_in_text,
+    normalize_unicode,
+    tokenize,
 )
 
 # Statuses hidden from the daily queue by default.
@@ -417,4 +430,316 @@ def get_stats(profile_name: str) -> dict[str, Any]:
             "by_status": by_status,
             "applications_this_week": applications_this_week,
             "response_rate": response_rate,
+        }
+
+
+# ----- Resume Tailor -----
+
+# Template phrasings for common skills/concepts. Used in suggested_rewrites
+# when a JD keyword is buried or missing from the resume. Resume-tailor
+# users can edit these in config later — for now they live in code.
+EXAMPLE_PHRASING: dict[str, str] = {
+    "tableau": "Built interactive Tableau dashboards visualizing X data for Y stakeholders",
+    "power bi": "Developed Power BI reports tracking [metric] across [audience]",
+    "looker": "Built LookML models surfacing [domain] metrics in Looker dashboards",
+    "snowflake": "Wrote optimized Snowflake SQL queries on [N]+ row tables for [purpose]",
+    "bigquery": "Wrote BigQuery SQL with windowing functions for [analysis type]",
+    "redshift": "Optimized Redshift query performance via distribution keys and sort keys",
+    "postgresql": "Designed PostgreSQL schemas with appropriate indexing for OLTP workloads",
+    "mysql": "Tuned MySQL queries and indexes for [N]+ QPS analytics workloads",
+    "mongodb": "Modeled MongoDB collections for [domain] document workloads",
+    "airflow": "Authored Airflow DAGs orchestrating [N] daily ETL pipelines",
+    "dbt": "Developed dbt models with version-controlled transformations and tests",
+    "spark": "Processed [N]GB datasets with PySpark transformations",
+    "aws": "Deployed analytics workflows on AWS (S3, Lambda, Athena)",
+    "azure": "Used Azure Data Factory for ETL orchestration",
+    "gcp": "Built BigQuery models for analytical workloads on GCP",
+    "r": "Used R for statistical modeling and exploratory analysis",
+    "spss": "Performed statistical analysis using SPSS for [study type]",
+    "tensorflow": "Built TensorFlow models for [classification/regression task]",
+    "pytorch": "Developed PyTorch deep learning pipelines for [domain]",
+    "kubernetes": "Deployed analytics services on Kubernetes for scalable processing",
+    "docker": "Containerized analytical workflows with Docker for reproducible environments",
+    "git": "Managed version control with Git including feature branches and code reviews",
+    "ci/cd": "Set up CI/CD pipelines for automated data validation and deployment",
+    "etl": "Designed ETL pipelines processing [N]M rows daily across [N] sources",
+    "warehouse": "Modeled data warehouse schemas using star/snowflake patterns",
+    "a/b testing": "Designed A/B tests measuring [metric] with statistical significance testing",
+    "regression": "Applied linear/logistic regression for [prediction task]",
+    "classification": "Built classification models for [target] prediction",
+    "clustering": "Used K-means clustering to segment [N] customers into actionable groups",
+    "time series": "Performed time-series forecasting using ARIMA/Prophet for [metric]",
+    "stakeholder": "Translated stakeholder requirements into measurable analytical deliverables",
+    "executive": "Presented analytical findings to executive leadership with clear narratives",
+    "agile": "Worked in agile sprints with cross-functional product teams",
+    "kpi": "Defined and reported KPIs aligned with [business goal]",
+}
+
+_GENERIC_PHRASING = (
+    "Consider adding a bullet that demonstrates your experience with {term}"
+)
+
+
+def _generate_example_phrasing(term: str) -> str:
+    """Return the template phrasing for ``term`` or a generic fallback."""
+    key = (term or "").lower().strip()
+    return EXAMPLE_PHRASING.get(key, _GENERIC_PHRASING.format(term=term))
+
+
+def _term_resume_count(term: str, resume_tokens: list[str], resume_text: str) -> int:
+    """Count how many times ``term`` appears in the resume.
+
+    Single-word terms use a token Counter (fast); multi-word and special-char
+    terms (a/b testing, c++, power bi) fall back to find_term_in_text.
+    """
+    key = term.lower().strip()
+    if " " in key or any(c in key for c in "+#/"):
+        return len(find_term_in_text(term, resume_text))
+    return resume_tokens.count(key)
+
+
+def get_resume_tailor_view(
+    item_id: int, profile_name: str
+) -> dict[str, Any]:
+    """Build the diff view for one item against a profile's resume."""
+    with get_session() as session:
+        profile = _profile_by_name(session, profile_name)
+        if profile is None:
+            return {}
+
+        item = session.execute(
+            select(Item).where(Item.id == item_id)
+        ).scalar_one_or_none()
+        if item is None:
+            return {}
+
+        kw_extract = session.execute(
+            select(KeywordExtract).where(KeywordExtract.item_id == item_id)
+        ).scalar_one_or_none()
+        jd_keywords_raw = list(kw_extract.keywords_json or []) if kw_extract else []
+
+        criteria = (
+            session.execute(
+                select(Criterion).where(Criterion.profile_id == profile.id)
+            )
+            .scalars()
+            .all()
+        )
+
+        score_row = session.execute(
+            select(Score).where(
+                Score.item_id == item_id,
+                Score.profile_id == profile.id,
+            )
+        ).scalar_one_or_none()
+        score_value = score_row.score if score_row else 0.0
+
+        md = item.metadata_json or {}
+
+        item_dict = {
+            "item_id": item.id,
+            "title": item.title,
+            "company": md.get("company"),
+            "url": item.url,
+            "body_cleaned": clean_html(item.body or ""),
+            "location_normalized": md.get("location_normalized") or "Unknown",
+            "score": score_value,
+        }
+
+        # Taxonomy lookup so the UI can flag in_taxonomy badges.
+        try:
+            tax = load_taxonomy()
+        except Exception:
+            tax = {}
+        taxonomy_terms: set[str] = set()
+        for cat in (tax.get("skills") or {}).values():
+            taxonomy_terms.update(t.lower() for t in cat)
+        taxonomy_terms.update((t or "").lower() for t in (tax.get("roles") or []))
+        taxonomy_terms.update((t or "").lower() for t in (tax.get("keywords") or []))
+
+        jd_keywords: list[dict] = []
+        for kw in jd_keywords_raw:
+            jd_keywords.append(
+                {
+                    **kw,
+                    "in_taxonomy": kw.get("term", "").lower() in taxonomy_terms,
+                }
+            )
+
+        resume_criteria = [
+            {
+                "id": c.id,
+                "term": c.term,
+                "weight": c.weight,
+                "kind": c.kind,
+                "source": c.source,
+            }
+            for c in criteria
+        ]
+        criteria_terms_lower = {c.term.lower() for c in criteria}
+
+        resume_text_raw = profile.resume_raw_text or ""
+        resume_text = normalize_unicode(resume_text_raw)
+        resume_tokens = tokenize(resume_text)
+
+        have_strong: list[dict] = []
+        have_buried: list[dict] = []
+        missing: list[dict] = []
+
+        for kw in jd_keywords:
+            term = kw.get("term", "")
+            if not term:
+                continue
+            if term.lower() in criteria_terms_lower:
+                count = _term_resume_count(term, resume_tokens, resume_text)
+                enriched = {**kw, "resume_frequency": count}
+                if count >= 2:
+                    have_strong.append(enriched)
+                else:
+                    have_buried.append(enriched)
+            else:
+                missing.append(kw)
+
+        missing.sort(
+            key=lambda x: x.get("frequency", 0) * x.get("importance", 1.0),
+            reverse=True,
+        )
+        missing = missing[:10]
+
+        suggested_rewrites: list[dict] = []
+        for kw in have_buried:
+            suggested_rewrites.append(
+                {
+                    "term": kw["term"],
+                    "category": "buried",
+                    "example_phrasing": _generate_example_phrasing(kw["term"]),
+                }
+            )
+        for kw in missing[:5]:
+            suggested_rewrites.append(
+                {
+                    "term": kw["term"],
+                    "category": "missing",
+                    "example_phrasing": _generate_example_phrasing(kw["term"]),
+                }
+            )
+
+        return {
+            "item": item_dict,
+            "jd_keywords": jd_keywords,
+            "resume_criteria": resume_criteria,
+            "diff": {
+                "have_strong": have_strong,
+                "have_buried": have_buried,
+                "missing": missing,
+            },
+            "suggested_rewrites": suggested_rewrites,
+        }
+
+
+# ----- Settings -----
+
+
+def add_manual_criterion(
+    profile_name: str, term: str, kind: str, weight: int
+) -> Criterion | None:
+    """Idempotently insert a kind/term tuple as source="manual".
+    Returns the row, or None if (term, kind) already exists for the profile.
+    """
+    if not term:
+        raise ValueError("term cannot be empty")
+    with get_session() as session:
+        profile = _profile_by_name(session, profile_name)
+        if profile is None:
+            raise ValueError(f"Profile not found: {profile_name!r}")
+        existing = session.execute(
+            select(Criterion).where(
+                Criterion.profile_id == profile.id,
+                Criterion.term == term,
+                Criterion.kind == kind,
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return None
+        row = Criterion(
+            profile_id=profile.id,
+            term=term,
+            kind=kind,
+            weight=weight,
+            match_type="fuzzy",
+            source="manual",
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
+
+def remove_manual_criterion(profile_name: str, criterion_id: int) -> bool:
+    """Delete a criterion. Refuses to delete rows where source != "manual"."""
+    with get_session() as session:
+        profile = _profile_by_name(session, profile_name)
+        if profile is None:
+            return False
+        row = session.execute(
+            select(Criterion).where(
+                Criterion.id == criterion_id,
+                Criterion.profile_id == profile.id,
+            )
+        ).scalar_one_or_none()
+        if row is None or row.source != "manual":
+            return False
+        session.delete(row)
+        session.commit()
+        return True
+
+
+def list_manual_criteria(profile_name: str) -> list[dict]:
+    with get_session() as session:
+        profile = _profile_by_name(session, profile_name)
+        if profile is None:
+            return []
+        rows = (
+            session.execute(
+                select(Criterion).where(
+                    Criterion.profile_id == profile.id,
+                    Criterion.source == "manual",
+                )
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            {"id": r.id, "term": r.term, "kind": r.kind, "weight": r.weight}
+            for r in rows
+        ]
+
+
+def list_taxonomy(taxonomy_path: Path | str = TAXONOMY_PATH) -> dict:
+    with open(taxonomy_path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def get_profile_summary(profile_name: str) -> dict:
+    with get_session() as session:
+        profile = _profile_by_name(session, profile_name)
+        if profile is None:
+            return {}
+        kind_counts = session.execute(
+            select(Criterion.kind, func.count(Criterion.id))
+            .where(Criterion.profile_id == profile.id)
+            .group_by(Criterion.kind)
+        ).all()
+        counts = {kind: n for kind, n in kind_counts}
+        meta = profile.metadata_json or {}
+        return {
+            "name": profile.name,
+            "resume_filename": profile.resume_filename,
+            "parsed_at": profile.parsed_at,
+            "criteria_counts_by_kind": counts,
+            "filter_config": {
+                "allowed_locations": meta.get("allowed_locations"),
+                "english_only": meta.get("english_only"),
+                "posted_after_days": meta.get("posted_after_days"),
+            },
         }
