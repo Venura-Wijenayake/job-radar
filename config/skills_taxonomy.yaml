@@ -69,5 +69,11 @@ roles:
   - analytics engineer
   - business intelligence
   - bi
-  - analytics
   - reporting
+
+# kind="keyword" — generic terms that signal relevance but are too broad
+# to grant the role-style 8x multiplier (would over-trigger on JDs that
+# casually mention "data-driven analytics culture" etc.). Keywords cap
+# at 2 occurrences and don't get a title boost.
+keywords:
+  - analytics

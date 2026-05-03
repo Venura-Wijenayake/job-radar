@@ -62,9 +62,11 @@ def parse_resume(file_path: str, profile_name: str) -> Profile:
     for category in (taxonomy.get("skills") or {}).values():
         skill_terms.extend(category)
     role_terms: list[str] = list(taxonomy.get("roles") or [])
+    keyword_terms: list[str] = list(taxonomy.get("keywords") or [])
 
     matched_skills = find_terms(raw_text, skill_terms)
     matched_roles = find_terms(raw_text, role_terms)
+    matched_keywords = find_terms(raw_text, keyword_terms)
 
     with get_session() as session:
         profile = session.execute(
@@ -108,6 +110,17 @@ def parse_resume(file_path: str, profile_name: str) -> Profile:
                     term=term,
                     kind="role",
                     weight=4,
+                    match_type="fuzzy",
+                    source="resume",
+                )
+            )
+        for term in matched_keywords:
+            session.add(
+                Criterion(
+                    profile_id=profile.id,
+                    term=term,
+                    kind="keyword",
+                    weight=3,
                     match_type="fuzzy",
                     source="resume",
                 )
