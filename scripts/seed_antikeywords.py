@@ -29,15 +29,30 @@ ANTI_KEYWORDS: list[str] = [
     "sr.",
 ]
 
+# Anti-keywords whose match should hurt more than the default. Phase 3.7
+# upgraded these from -20 to -30 (weight 2 -> 3) because Product/Project
+# Manager and Director-level roles were still surfacing despite the
+# generic anti-keyword penalty.
+HIGH_PENALTY_TERMS: set[str] = {
+    "manager", "head of", "director", "vp", "chief"
+}
+
+
+def _desired_weight(term: str) -> int:
+    return 3 if term in HIGH_PENALTY_TERMS else 2
+
 
 def seed_antikeywords(profile_name: str) -> dict[str, int]:
-    """Idempotently insert ANTI_KEYWORDS as kind="exclude" criteria.
+    """Idempotently upsert ANTI_KEYWORDS as kind="exclude" criteria.
 
-    Returns ``{"added": int, "skipped": int}``. Raises ``ValueError`` if
-    the profile name does not exist.
+    Returns ``{"added": int, "updated": int, "unchanged": int}`` —
+    ``updated`` counts rows whose stored weight diverged from the
+    desired weight (e.g. after a HIGH_PENALTY_TERMS bump). Raises
+    ``ValueError`` if the profile name does not exist.
     """
     added = 0
-    skipped = 0
+    updated = 0
+    unchanged = 0
     with get_session() as session:
         profile = session.execute(
             select(Profile).where(Profile.name == profile_name)
@@ -46,6 +61,7 @@ def seed_antikeywords(profile_name: str) -> dict[str, int]:
             raise ValueError(f"Profile not found: {profile_name!r}")
 
         for term in ANTI_KEYWORDS:
+            desired = _desired_weight(term)
             existing = session.execute(
                 select(Criterion).where(
                     Criterion.profile_id == profile.id,
@@ -53,24 +69,27 @@ def seed_antikeywords(profile_name: str) -> dict[str, int]:
                     Criterion.kind == "exclude",
                 )
             ).scalar_one_or_none()
-            if existing is not None:
-                skipped += 1
-                continue
-            session.add(
-                Criterion(
-                    profile_id=profile.id,
-                    term=term,
-                    kind="exclude",
-                    weight=2,
-                    match_type="fuzzy",
-                    source="manual",
+            if existing is None:
+                session.add(
+                    Criterion(
+                        profile_id=profile.id,
+                        term=term,
+                        kind="exclude",
+                        weight=desired,
+                        match_type="fuzzy",
+                        source="manual",
+                    )
                 )
-            )
-            added += 1
+                added += 1
+            elif existing.weight != desired:
+                existing.weight = desired
+                updated += 1
+            else:
+                unchanged += 1
 
         session.commit()
 
-    return {"added": added, "skipped": skipped}
+    return {"added": added, "updated": updated, "unchanged": unchanged}
 
 
 def main() -> None:
@@ -87,8 +106,8 @@ def main() -> None:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
     print(
-        f"Added {summary['added']} anti-keywords, "
-        f"skipped {summary['skipped']} existing."
+        f"Added {summary['added']}, updated {summary['updated']}, "
+        f"unchanged {summary['unchanged']}."
     )
 
 
