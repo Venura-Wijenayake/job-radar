@@ -1,29 +1,23 @@
 # Virtual environment
 venv/
-.venv/
-env/
 
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+*.pyc
 
 # Environment / secrets
 .env
+.env.local
 .streamlit/secrets.toml
 
-# Local data (keep schema files, ignore databases)
+# Local data — keep folder shape, ignore actual contents
 data/*.db
 data/*.db-journal
-data/*.sqlite
-data/*.sqlite3
+data/resumes/*
+!data/resumes/.gitkeep
 
-# IDE
-.idea/
+# IDE / OS
 .vscode/
-*.swp
+.idea/
 .DS_Store
+Thumbs.db
