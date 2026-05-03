@@ -138,4 +138,5 @@ The engine is fully source-agnostic; tables use generic names (`items`, `sources
 - **Phase 3.6** — Geographic + language filtering ✅
 - **Phase 3.7** — Recency filter, analytics keyword recategorization, manager penalty ✅
 - **Phase 3b** — Resume Tailor + Market Insights + Settings tabs ✅
+- **Phase 3.8** — Adzuna scraper (5th source, ~1,800 new items) + citizenship/license/ghost filters ✅
 - **Phase 4** — GitHub Actions cron + Streamlit Cloud deploy + screenshots in this README
