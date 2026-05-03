@@ -2,6 +2,8 @@
 
 > Daily ETL pipeline + SQL analytics + interactive dashboard for job market intelligence. Live demo personalized via uploaded resume.
 
+[![Daily Scrape](https://github.com/Venura-Wijenayake/job-radar/actions/workflows/daily-scrape.yml/badge.svg)](https://github.com/Venura-Wijenayake/job-radar/actions/workflows/daily-scrape.yml)
+
 **Status:** in development
 
 ## Overview

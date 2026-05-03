@@ -1,0 +1,67 @@
+name: Daily Scrape
+
+on:
+  schedule:
+    # 13:00 UTC = 6am Pacific (PDT) / 5am Pacific (PST). Cron times are
+    # in UTC, so the wall-clock hour shifts by an hour at DST transitions.
+    - cron: '0 13 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # Only one run at a time; cancel an in-flight run if a manual dispatch
+  # arrives mid-cron.
+  group: daily-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Need the full history so the auto-commit can push without a
+          # shallow-clone error.
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run cron pipeline
+        env:
+          ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
+          ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+        run: python scripts/cron_run.py
+
+      - name: Commit and push if changed
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet -- data/job_radar.db; then
+            echo "No changes to data/job_radar.db; skipping commit."
+            exit 0
+          fi
+
+          if [ -f data/cron_summary.txt ]; then
+            SUMMARY=$(cat data/cron_summary.txt)
+          else
+            SUMMARY="schedule run"
+          fi
+
+          git add data/job_radar.db
+          git commit -m "chore(cron): daily scrape — ${SUMMARY}"
+          git push origin HEAD:master
