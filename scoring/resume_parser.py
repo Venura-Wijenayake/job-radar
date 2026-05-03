@@ -1,15 +1,14 @@
 from __future__ import annotations
 
-import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
 
 import yaml
 from sqlalchemy import select
 
 from db.database import get_session
 from db.models import Criterion, Profile
+from .text_utils import find_terms
 
 TAXONOMY_PATH = Path(__file__).resolve().parent.parent / "config" / "skills_taxonomy.yaml"
 
@@ -43,20 +42,6 @@ def extract_text(file_path: str) -> str:
 def load_taxonomy(path: Path | str = TAXONOMY_PATH) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
-
-
-def _term_pattern(term: str) -> re.Pattern[str]:
-    """Word-boundary, case-insensitive pattern that handles terms with
-    non-word characters (c++, c#, a/b testing) which would defeat \\b."""
-    escaped = re.escape(term)
-    return re.compile(
-        rf"(?<![A-Za-z0-9_]){escaped}(?![A-Za-z0-9_])",
-        flags=re.IGNORECASE,
-    )
-
-
-def find_terms(text: str, terms: Iterable[str]) -> list[str]:
-    return [t for t in terms if _term_pattern(t).search(text)]
 
 
 def _now_utc_naive() -> datetime:
