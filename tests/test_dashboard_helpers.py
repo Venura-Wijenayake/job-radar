@@ -8,14 +8,31 @@ import pytest
 from sqlalchemy import select
 
 from dashboard.data import (
+    EXAMPLE_PHRASING,
+    _generate_example_phrasing,
+    add_manual_criterion,
     get_pipeline,
+    get_profile_summary,
+    get_resume_tailor_view,
     get_stats,
     get_today_queue,
+    list_manual_criteria,
+    list_taxonomy,
+    remove_manual_criterion,
     set_status,
     update_notes,
 )
 from db.database import get_session
-from db.models import Item, Profile, Score, Source, Tracking, TrackingStatus
+from db.models import (
+    Criterion,
+    Item,
+    KeywordExtract,
+    Profile,
+    Score,
+    Source,
+    Tracking,
+    TrackingStatus,
+)
 
 
 def _now() -> datetime:
@@ -451,3 +468,211 @@ def test_get_stats_applications_this_week_filter(basic_setup):
 
     stats = get_stats("p1")
     assert stats["applications_this_week"] == 3
+
+
+# ----- Resume Tailor -----
+
+
+def _add_resume_text(profile_id: int, text: str) -> None:
+    with get_session() as session:
+        p = session.execute(
+            select(Profile).where(Profile.id == profile_id)
+        ).scalar_one()
+        p.resume_raw_text = text
+        session.commit()
+
+
+def _add_criterion(
+    profile_id: int, term: str, kind: str = "skill", weight: int = 3,
+    source: str = "resume",
+) -> int:
+    with get_session() as session:
+        c = Criterion(
+            profile_id=profile_id,
+            term=term,
+            kind=kind,
+            weight=weight,
+            source=source,
+            match_type="fuzzy",
+        )
+        session.add(c)
+        session.commit()
+        return c.id
+
+
+def _add_keyword_extract(item_id: int, keywords: list[dict]) -> None:
+    with get_session() as session:
+        session.add(
+            KeywordExtract(
+                item_id=item_id,
+                keywords_json=keywords,
+                extracted_at=_now(),
+            )
+        )
+        session.commit()
+
+
+def _add_score_full(item_id: int, profile_id: int, score: float) -> None:
+    with get_session() as session:
+        session.add(
+            Score(
+                item_id=item_id,
+                profile_id=profile_id,
+                score=score,
+                raw_score=score,
+                matched_terms_json=[],
+                computed_at=_now(),
+            )
+        )
+        session.commit()
+
+
+def test_resume_tailor_diff_have_strong(basic_setup):
+    """A JD keyword that's in resume criteria AND appears >=2 times in
+    resume text -> have_strong."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    _add_resume_text(pid, "I use python daily. Python is my main language. python.")
+    _add_criterion(pid, "python", kind="skill", weight=3)
+
+    iid = _add_item(sid, "x", "Engineer", body="we use python")
+    _add_score_full(iid, pid, 50.0)
+    _add_keyword_extract(
+        iid, [{"term": "python", "frequency": 3, "importance": 2.0}]
+    )
+
+    view = get_resume_tailor_view(iid, "p1")
+    terms = [k["term"] for k in view["diff"]["have_strong"]]
+    assert "python" in terms
+
+
+def test_resume_tailor_diff_have_buried(basic_setup):
+    """A JD keyword in resume criteria but appearing <2 times in resume text
+    -> have_buried."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    _add_resume_text(pid, "Brief mention of tableau once.")
+    _add_criterion(pid, "tableau", kind="skill", weight=3)
+
+    iid = _add_item(sid, "x", "Analyst", body="tableau dashboards")
+    _add_score_full(iid, pid, 30.0)
+    _add_keyword_extract(
+        iid, [{"term": "tableau", "frequency": 5, "importance": 2.0}]
+    )
+
+    view = get_resume_tailor_view(iid, "p1")
+    terms = [k["term"] for k in view["diff"]["have_buried"]]
+    assert "tableau" in terms
+    strong_terms = [k["term"] for k in view["diff"]["have_strong"]]
+    assert "tableau" not in strong_terms
+
+
+def test_resume_tailor_diff_missing_sorted_by_importance(basic_setup):
+    """JD keywords NOT in resume criteria are sorted by frequency*importance
+    descending."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    _add_resume_text(pid, "I use python.")
+    _add_criterion(pid, "python", kind="skill")
+
+    iid = _add_item(sid, "x", "T", body="various tools")
+    _add_score_full(iid, pid, 50.0)
+    _add_keyword_extract(
+        iid,
+        [
+            {"term": "python", "frequency": 2, "importance": 2.0},   # not missing
+            {"term": "kubernetes", "frequency": 1, "importance": 1.0},  # 1.0
+            {"term": "snowflake", "frequency": 4, "importance": 2.0},  # 8.0
+            {"term": "bigquery", "frequency": 2, "importance": 2.0},   # 4.0
+        ],
+    )
+    view = get_resume_tailor_view(iid, "p1")
+    missing_terms = [k["term"] for k in view["diff"]["missing"]]
+    assert missing_terms == ["snowflake", "bigquery", "kubernetes"]
+
+
+def test_resume_tailor_suggested_rewrites_uses_template(basic_setup):
+    """A JD keyword present in EXAMPLE_PHRASING gets the template phrasing."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    _add_resume_text(pid, "python python python")
+    _add_criterion(pid, "python", kind="skill")
+
+    iid = _add_item(sid, "x", "T", body="snowflake required")
+    _add_score_full(iid, pid, 50.0)
+    _add_keyword_extract(
+        iid, [{"term": "snowflake", "frequency": 5, "importance": 2.0}]
+    )
+
+    view = get_resume_tailor_view(iid, "p1")
+    snowflake_rw = next(
+        r for r in view["suggested_rewrites"] if r["term"] == "snowflake"
+    )
+    assert snowflake_rw["example_phrasing"] == EXAMPLE_PHRASING["snowflake"]
+    assert snowflake_rw["category"] == "missing"
+
+
+def test_resume_tailor_suggested_rewrites_falls_back():
+    """An unknown term gets the generic phrasing fallback."""
+    out = _generate_example_phrasing("zzznot_a_real_skill")
+    assert "zzznot_a_real_skill" in out
+    assert "Consider adding a bullet" in out
+
+
+# ----- Settings -----
+
+
+def test_add_manual_criterion_creates_row(basic_setup):
+    pid = basic_setup["profile_id"]
+    row = add_manual_criterion("p1", "tableau", "skill", 3)
+    assert row is not None
+    assert row.term == "tableau"
+    assert row.source == "manual"
+
+
+def test_add_manual_criterion_idempotent(basic_setup):
+    pid = basic_setup["profile_id"]
+    first = add_manual_criterion("p1", "tableau", "skill", 3)
+    second = add_manual_criterion("p1", "tableau", "skill", 3)
+    assert first is not None
+    assert second is None  # already exists
+
+
+def test_remove_manual_criterion_only_deletes_manual_source(basic_setup):
+    pid = basic_setup["profile_id"]
+    row = add_manual_criterion("p1", "tableau", "skill", 3)
+    assert row is not None
+    ok = remove_manual_criterion("p1", row.id)
+    assert ok is True
+    assert list_manual_criteria("p1") == []
+
+
+def test_remove_manual_criterion_refuses_resume_source(basic_setup):
+    pid = basic_setup["profile_id"]
+    cid = _add_criterion(pid, "python", kind="skill", source="resume")
+    ok = remove_manual_criterion("p1", cid)
+    assert ok is False
+    # Confirm row still exists
+    with get_session() as session:
+        still = session.execute(
+            select(Criterion).where(Criterion.id == cid)
+        ).scalar_one_or_none()
+    assert still is not None
+
+
+def test_get_profile_summary_returns_correct_counts(basic_setup):
+    pid = basic_setup["profile_id"]
+    _add_criterion(pid, "python", kind="skill", source="resume")
+    _add_criterion(pid, "sql", kind="skill", source="resume")
+    _add_criterion(pid, "data analyst", kind="role", source="resume")
+    add_manual_criterion("p1", "tableau", "skill", 3)
+    add_manual_criterion("p1", "vp", "exclude", 3)
+
+    summary = get_profile_summary("p1")
+    counts = summary["criteria_counts_by_kind"]
+    assert counts.get("skill") == 3
+    assert counts.get("role") == 1
+    assert counts.get("exclude") == 1
+
+
+def test_list_taxonomy_returns_dict():
+    tax = list_taxonomy()
+    assert isinstance(tax, dict)
+    assert "skills" in tax
+    assert "roles" in tax
