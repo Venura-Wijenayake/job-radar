@@ -17,6 +17,7 @@ from db.models import Profile
 DEFAULT_PROFILE_META = {
     "allowed_locations": ["US", "Remote-US", "Remote-Global", "Unknown"],
     "english_only": True,
+    "posted_after_days": 30,
 }
 
 

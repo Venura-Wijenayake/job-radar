@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from db.database import get_session
@@ -68,6 +68,7 @@ def get_today_queue(
     collapse_duplicates: bool = True,
     allowed_locations: Optional[list[str]] = None,
     english_only: Optional[bool] = None,
+    posted_after_days: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """Highest-scoring items for a profile, with the current tracking status
     inlined. Items with status in ``exclude_statuses`` are filtered out.
@@ -91,6 +92,11 @@ def get_today_queue(
         ``language_detected`` is ``"other"``. ``"en"`` and ``"mixed"`` are
         kept. When None, falls back to the profile's
         ``metadata_json["english_only"]`` if present, otherwise False.
+      ``posted_after_days`` — drops items whose ``posted_at`` is older
+        than ``now - posted_after_days``. Items with NULL ``posted_at``
+        are kept (an unknown date isn't grounds to call it stale).
+        When None, falls back to the profile's
+        ``metadata_json["posted_after_days"]`` if present, otherwise 30.
 
     Filtering happens before duplicate-collapsing so the
     similar_count reflects only items that survived the filters.
@@ -109,6 +115,8 @@ def get_today_queue(
             allowed_locations = profile_meta.get("allowed_locations")
         if english_only is None:
             english_only = bool(profile_meta.get("english_only", False))
+        if posted_after_days is None:
+            posted_after_days = int(profile_meta.get("posted_after_days", 30))
 
         excluded_enums = [TrackingStatus(s) for s in exclude_statuses]
         excluded_item_ids = (
@@ -116,6 +124,8 @@ def get_today_queue(
             .where(Tracking.profile_id == profile.id)
             .where(Tracking.status.in_(excluded_enums))
         )
+
+        recency_cutoff = _now_utc_naive() - timedelta(days=posted_after_days)
 
         rows = session.execute(
             select(Score, Item, Source, Tracking)
@@ -130,6 +140,9 @@ def get_today_queue(
             )
             .where(Score.profile_id == profile.id)
             .where(Item.id.notin_(excluded_item_ids))
+            .where(
+                or_(Item.posted_at >= recency_cutoff, Item.posted_at.is_(None))
+            )
             .order_by(Score.score.desc(), Item.posted_at.desc())
             .limit(limit)
         ).all()

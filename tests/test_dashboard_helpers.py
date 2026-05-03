@@ -179,6 +179,45 @@ def test_get_today_queue_filters_unknown_location_lenient(basic_setup):
     assert {r["item_id"] for r in result} == {a, b}
 
 
+def test_get_today_queue_filters_old_items(basic_setup):
+    """Items whose posted_at is older than posted_after_days drop out;
+    items with NULL posted_at are kept (unknown != stale)."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    fresh = _now() - timedelta(days=5)
+    stale = _now() - timedelta(days=60)
+
+    a = _add_item(sid, "a", "Fresh", company="Acme", posted_at=fresh)
+    b = _add_item(sid, "b", "Stale", company="Beta", posted_at=stale)
+    c = _add_item(sid, "c", "NoDate", company="Gamma")  # posted_at = None
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+    _add_score(c, pid, 50)
+
+    result = get_today_queue("p1", posted_after_days=30)
+    assert {r["item_id"] for r in result} == {a, c}
+
+
+def test_get_today_queue_recency_from_profile_metadata(basic_setup):
+    """When posted_after_days is None, fall back to profile.metadata_json."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    with get_session() as session:
+        profile = session.execute(
+            select(Profile).where(Profile.id == pid)
+        ).scalar_one()
+        profile.metadata_json = {"posted_after_days": 7}
+        session.commit()
+
+    fresh = _now() - timedelta(days=3)
+    stale = _now() - timedelta(days=20)
+    a = _add_item(sid, "a", "Fresh", company="Acme", posted_at=fresh)
+    b = _add_item(sid, "b", "Stale", company="Beta", posted_at=stale)
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+
+    result = get_today_queue("p1")  # no explicit param — read from profile
+    assert {r["item_id"] for r in result} == {a}
+
+
 def test_get_today_queue_english_only_drops_other(basic_setup):
     sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
     a = _add_item(sid, "a", "Item A", company="Acme", language_detected="en")
