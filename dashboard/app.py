@@ -276,15 +276,17 @@ with tab_queue:
                 st.markdown(_score_badge(item["score"]))
             with head_r:
                 similar = item.get("similar_count", 0)
-                similar_badge = (
-                    f" :gray-background[+{similar} similar]" if similar > 0 else ""
-                )
+                badges = ""
+                if similar > 0:
+                    badges += f" :gray-background[+{similar} similar]"
+                if item.get("ghost_warning"):
+                    badges += " :orange-background[⚠️ might be ghost listing]"
                 if item["url"]:
                     st.markdown(
-                        f"**[{item['title']}]({item['url']})**{similar_badge}"
+                        f"**[{item['title']}]({item['url']})**{badges}"
                     )
                 else:
-                    st.markdown(f"**{item['title']}**{similar_badge}")
+                    st.markdown(f"**{item['title']}**{badges}")
                 meta_parts = [
                     p
                     for p in [

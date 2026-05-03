@@ -82,6 +82,9 @@ def get_today_queue(
     allowed_locations: Optional[list[str]] = None,
     english_only: Optional[bool] = None,
     posted_after_days: Optional[int] = None,
+    hide_citizenship_required: Optional[bool] = None,
+    hide_license_required: Optional[bool] = None,
+    hide_ghost_jobs_above: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """Highest-scoring items for a profile, with the current tracking status
     inlined. Items with status in ``exclude_statuses`` are filtered out.
@@ -110,6 +113,14 @@ def get_today_queue(
         are kept (an unknown date isn't grounds to call it stale).
         When None, falls back to the profile's
         ``metadata_json["posted_after_days"]`` if present, otherwise 30.
+      ``hide_citizenship_required`` — when True, items whose
+        ``metadata.citizenship_required`` is True are dropped. Falls
+        back to profile metadata, default True.
+      ``hide_license_required`` — same for ``license_required``.
+      ``hide_ghost_jobs_above`` — items with ``ghost_score`` >= this
+        threshold are dropped. Falls back to profile metadata, default
+        80. Items with ghost_score in [50, threshold) survive but get
+        ``ghost_warning=True`` set on the result dict.
 
     Filtering happens before duplicate-collapsing so the
     similar_count reflects only items that survived the filters.
@@ -130,6 +141,18 @@ def get_today_queue(
             english_only = bool(profile_meta.get("english_only", False))
         if posted_after_days is None:
             posted_after_days = int(profile_meta.get("posted_after_days", 30))
+        if hide_citizenship_required is None:
+            hide_citizenship_required = bool(
+                profile_meta.get("hide_citizenship_required", True)
+            )
+        if hide_license_required is None:
+            hide_license_required = bool(
+                profile_meta.get("hide_license_required", True)
+            )
+        if hide_ghost_jobs_above is None:
+            hide_ghost_jobs_above = int(
+                profile_meta.get("hide_ghost_jobs_above", 80)
+            )
 
         excluded_enums = [TrackingStatus(s) for s in exclude_statuses]
         excluded_item_ids = (
@@ -173,6 +196,19 @@ def get_today_queue(
             if english_only and language_det == "other":
                 continue
 
+            citizenship_req = bool(md.get("citizenship_required", False))
+            license_req = bool(md.get("license_required", False))
+            ghost_score = int(md.get("ghost_score") or 0)
+
+            if hide_citizenship_required and citizenship_req:
+                continue
+            if hide_license_required and license_req:
+                continue
+            if ghost_score >= hide_ghost_jobs_above:
+                continue
+
+            ghost_warning = 50 <= ghost_score < hide_ghost_jobs_above
+
             top_three = sorted(
                 score.matched_terms_json or [],
                 key=lambda t: t.get("contribution", 0),
@@ -197,6 +233,10 @@ def get_today_queue(
                         tracking.status.value if tracking is not None else None
                     ),
                     "current_notes": tracking.notes if tracking is not None else None,
+                    "citizenship_required": citizenship_req,
+                    "license_required": license_req,
+                    "ghost_score": ghost_score,
+                    "ghost_warning": ghost_warning,
                     "similar_count": 0,
                     "similar_item_ids": [],
                 }

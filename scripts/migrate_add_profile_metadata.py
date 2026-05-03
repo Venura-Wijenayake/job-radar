@@ -18,6 +18,9 @@ DEFAULT_PROFILE_META = {
     "allowed_locations": ["US", "Remote-US", "Remote-Global", "Unknown"],
     "english_only": True,
     "posted_after_days": 30,
+    "hide_citizenship_required": True,
+    "hide_license_required": True,
+    "hide_ghost_jobs_above": 80,
 }
 
 
