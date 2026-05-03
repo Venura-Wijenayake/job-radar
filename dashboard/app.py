@@ -18,6 +18,8 @@ from pathlib import Path
 # Ensure project root is on sys.path when launched via `streamlit run`.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import pandas as pd  # noqa: E402
+import plotly.express as px  # noqa: E402
 import streamlit as st  # noqa: E402
 
 from dashboard.data import (  # noqa: E402
@@ -34,6 +36,13 @@ from dashboard.data import (  # noqa: E402
     remove_manual_criterion,
     set_status,
     update_notes,
+)
+from dashboard.insights import (  # noqa: E402
+    market_summary,
+    posting_velocity_by_day,
+    skill_demand_frequency,
+    source_breakdown,
+    top_hiring_companies,
 )
 
 PIPELINE_LABELS: dict[str, str] = {
@@ -481,10 +490,126 @@ with tab_tailor:
                             st.write(rw["example_phrasing"])
 
 
-# ----- Market Insights (placeholder — populated in next chunk) -----
+# ----- Market Insights -----
+
+
+@st.cache_data(ttl=300)
+def _cached_market_summary() -> dict:
+    return market_summary()
+
+
+@st.cache_data(ttl=300)
+def _cached_top_hiring(limit: int) -> list[dict]:
+    return top_hiring_companies(limit)
+
+
+@st.cache_data(ttl=300)
+def _cached_skill_demand(taxonomy_path: str, top_n: int) -> list[dict]:
+    return skill_demand_frequency(taxonomy_path, top_n)
+
+
+@st.cache_data(ttl=300)
+def _cached_velocity(days: int) -> list[dict]:
+    return posting_velocity_by_day(days)
+
+
+@st.cache_data(ttl=300)
+def _cached_source_breakdown() -> list[dict]:
+    return source_breakdown()
+
 
 with tab_insights:
-    st.info("Market Insights tab — coming up next.")
+    try:
+        summary = _cached_market_summary()
+    except Exception as exc:
+        st.error(f"Failed to load market summary: {exc}")
+        summary = {
+            "total_items": 0,
+            "total_companies": 0,
+            "freshest_posted_at": None,
+        }
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Total items", summary["total_items"])
+    m2.metric("Companies hiring", summary["total_companies"])
+    freshest = summary.get("freshest_posted_at")
+    m3.metric(
+        "Freshest posting",
+        freshest.strftime("%Y-%m-%d") if freshest else "—",
+    )
+
+    row1_l, row1_r = st.columns(2)
+    with row1_l:
+        st.subheader("Top hiring companies")
+        try:
+            data = _cached_top_hiring(15)
+            if data:
+                df = pd.DataFrame(data)
+                fig = px.bar(
+                    df,
+                    x="count",
+                    y="company",
+                    orientation="h",
+                    template="plotly_dark",
+                )
+                fig.update_layout(yaxis={"categoryorder": "total ascending"})
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No items yet.")
+        except Exception as exc:
+            st.error(f"Failed: {exc}")
+    with row1_r:
+        st.subheader("Skill demand (taxonomy ∩ JDs)")
+        try:
+            data = _cached_skill_demand("config/skills_taxonomy.yaml", 20)
+            if data:
+                df = pd.DataFrame(data)
+                fig = px.bar(
+                    df,
+                    x="item_count",
+                    y="skill",
+                    orientation="h",
+                    template="plotly_dark",
+                )
+                fig.update_layout(yaxis={"categoryorder": "total ascending"})
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No keyword extracts yet — run scripts/extract_keywords.py.")
+        except Exception as exc:
+            st.error(f"Failed: {exc}")
+
+    row2_l, row2_r = st.columns(2)
+    with row2_l:
+        st.subheader("Posting velocity (last 30 days)")
+        try:
+            data = _cached_velocity(30)
+            if data:
+                df = pd.DataFrame(data)
+                fig = px.line(
+                    df, x="date", y="count", template="plotly_dark", markers=True
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No dated postings in the last 30 days.")
+        except Exception as exc:
+            st.error(f"Failed: {exc}")
+    with row2_r:
+        st.subheader("Source breakdown")
+        try:
+            data = _cached_source_breakdown()
+            if data:
+                df = pd.DataFrame(data)
+                fig = px.pie(
+                    df,
+                    values="count",
+                    names="source_name",
+                    template="plotly_dark",
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No items yet.")
+        except Exception as exc:
+            st.error(f"Failed: {exc}")
 
 
 # ----- Settings (placeholder — populated in next chunk) -----
