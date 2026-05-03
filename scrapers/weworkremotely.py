@@ -7,6 +7,9 @@ from typing import Any
 import feedparser
 import httpx
 
+from scoring.language_utils import detect_language
+from scoring.location_utils import normalize_location
+
 from .base import BaseScraper
 
 WWR_URL = "https://weworkremotely.com/remote-jobs.rss"
@@ -77,17 +80,21 @@ class WeWorkRemotelyScraper(BaseScraper):
             if term:
                 tags.append(term)
 
+        body = raw.get("description") or raw.get("summary") or ""
+        region = raw.get("region")
         metadata = {
             "company": company,
             "tags": tags,
-            "region": raw.get("region"),
+            "region": region,
             "remote_type": "remote",
+            "location_normalized": normalize_location(region, body),
+            "language_detected": detect_language(body),
         }
 
         return {
             "external_id": str(external_id),
             "title": title,
-            "body": raw.get("description") or raw.get("summary") or "",
+            "body": body,
             "url": link,
             "metadata_json": metadata,
             "posted_at": _struct_to_naive_utc(raw.get("published_parsed")),

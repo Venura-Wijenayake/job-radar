@@ -48,6 +48,7 @@ class Profile(Base):
     resume_filename: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     resume_raw_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     parsed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    metadata_json: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False
     )

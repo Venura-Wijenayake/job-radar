@@ -5,6 +5,9 @@ from typing import Any
 
 import httpx
 
+from scoring.language_utils import detect_language
+from scoring.location_utils import normalize_location
+
 from .base import BaseScraper
 
 REMOTEOK_URL = "https://remoteok.com/api"
@@ -52,6 +55,7 @@ class RemoteOKScraper(BaseScraper):
             except (TypeError, ValueError, OSError):
                 posted_at = None
 
+        body = raw.get("description") or ""
         metadata = {
             "company": raw.get("company"),
             "location": raw.get("location"),
@@ -60,12 +64,14 @@ class RemoteOKScraper(BaseScraper):
             "tags": raw.get("tags") or [],
             "logo": raw.get("logo") or raw.get("company_logo"),
             "remote_type": "remote",
+            "location_normalized": normalize_location(raw.get("location"), body),
+            "language_detected": detect_language(body),
         }
 
         return {
             "external_id": str(raw["id"]),
             "title": raw["position"],
-            "body": raw.get("description") or "",
+            "body": body,
             "url": raw.get("url") or f"https://remoteok.com/remote-jobs/{raw['id']}",
             "metadata_json": metadata,
             "posted_at": posted_at,

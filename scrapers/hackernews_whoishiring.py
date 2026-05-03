@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from scoring.language_utils import detect_language
+from scoring.location_utils import normalize_location
 from scoring.text_utils import clean_html, normalize_unicode
 
 from .base import BaseScraper
@@ -132,6 +134,8 @@ class HackerNewsWhoIsHiringScraper(BaseScraper):
             except (TypeError, ValueError, OSError):
                 posted_at = None
 
+        # HN posts encode location in the first line ("Co | Role | NYC | Remote").
+        # Pass the first_line as the raw location plus body as fallback.
         return {
             "external_id": f"hn_{comment_id}",
             "title": title,
@@ -143,6 +147,8 @@ class HackerNewsWhoIsHiringScraper(BaseScraper):
                 "first_line": first_line,
                 "thread_id": self._thread_id,
                 "remote_type": "varied",
+                "location_normalized": normalize_location(first_line, cleaned),
+                "language_detected": detect_language(cleaned),
             },
             "posted_at": posted_at,
         }

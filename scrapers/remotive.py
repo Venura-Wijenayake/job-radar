@@ -5,6 +5,9 @@ from typing import Any
 
 import httpx
 
+from scoring.language_utils import detect_language
+from scoring.location_utils import normalize_location
+
 from .base import BaseScraper
 
 REMOTIVE_BASE = "https://remotive.com/api/remote-jobs"
@@ -69,20 +72,24 @@ class RemotiveScraper(BaseScraper):
         if not raw.get("id") or not raw.get("title"):
             return None
 
+        body = raw.get("description") or ""
+        location_raw = raw.get("candidate_required_location")
         metadata = {
             "company": raw.get("company_name"),
-            "location": raw.get("candidate_required_location"),
+            "location": location_raw,
             "salary": raw.get("salary"),
             "category": raw.get("category"),
             "tags": raw.get("tags") or [],
             "job_type": raw.get("job_type"),
             "remote_type": "remote",
+            "location_normalized": normalize_location(location_raw, body),
+            "language_detected": detect_language(body),
         }
 
         return {
             "external_id": str(raw["id"]),
             "title": raw["title"],
-            "body": raw.get("description") or "",
+            "body": body,
             "url": raw.get("url") or "",
             "metadata_json": metadata,
             "posted_at": _parse_iso(raw.get("publication_date")),
