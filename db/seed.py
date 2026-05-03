@@ -12,6 +12,24 @@ DEFAULT_SOURCES = [
         "url": "https://remoteok.com/api",
         "enabled": True,
     },
+    {
+        "name": "Remotive",
+        "type": "api",
+        "url": "https://remotive.com/api/remote-jobs?category=data",
+        "enabled": True,
+    },
+    {
+        "name": "WeWorkRemotely",
+        "type": "rss",
+        "url": "https://weworkremotely.com/remote-jobs.rss",
+        "enabled": True,
+    },
+    {
+        "name": "HackerNewsWhoIsHiring",
+        "type": "api",
+        "url": "https://hn.algolia.com/api/v1/search",
+        "enabled": True,
+    },
 ]
 
 
