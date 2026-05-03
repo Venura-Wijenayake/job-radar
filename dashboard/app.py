@@ -612,7 +612,122 @@ with tab_insights:
             st.error(f"Failed: {exc}")
 
 
-# ----- Settings (placeholder — populated in next chunk) -----
+# ----- Settings -----
+
+
+def _rescore_after_criteria_change(prof_name: str) -> None:
+    """Run a force-rescore so the new/removed manual criterion is
+    reflected in the queue immediately. Imported here so the heavy
+    scoring deps load lazily."""
+    from scoring.batch import score_all_items
+
+    with st.spinner("Re-scoring queue..."):
+        score_all_items(prof_name, force=True)
+    _invalidate_caches()
+
 
 with tab_settings:
-    st.info("Settings tab — coming up next.")
+    st.subheader("Profile")
+    try:
+        summary_data = get_profile_summary(profile_name)
+    except Exception as exc:
+        st.error(f"Failed to load profile summary: {exc}")
+        summary_data = {}
+
+    if summary_data:
+        info_cols = st.columns(2)
+        with info_cols[0]:
+            st.write(f"**Name:** {summary_data['name']}")
+            st.write(
+                f"**Resume:** {summary_data.get('resume_filename') or '_none_'}"
+            )
+            parsed = summary_data.get("parsed_at")
+            st.write(
+                f"**Parsed:** {parsed.strftime('%Y-%m-%d %H:%M') if parsed else '_never_'}"
+            )
+        with info_cols[1]:
+            counts = summary_data.get("criteria_counts_by_kind", {})
+            for kind in ("skill", "role", "keyword", "exclude"):
+                st.write(f"**{kind} criteria:** {counts.get(kind, 0)}")
+        with st.expander("Filter config"):
+            st.json(summary_data.get("filter_config", {}))
+
+    st.divider()
+
+    st.subheader("Manual criteria")
+    st.caption(
+        "Manually-added rows. Resume-extracted criteria are not editable here "
+        "(re-parse the resume to refresh those)."
+    )
+
+    try:
+        manual_rows = list_manual_criteria(profile_name)
+    except Exception as exc:
+        st.error(f"Failed to load manual criteria: {exc}")
+        manual_rows = []
+
+    if not manual_rows:
+        st.write("_None yet._")
+    else:
+        for row in manual_rows:
+            row_cols = st.columns([2, 1, 1, 1])
+            row_cols[0].write(f"**{row['term']}**")
+            row_cols[1].write(row["kind"])
+            row_cols[2].write(f"weight {row['weight']}")
+            if row_cols[3].button("Remove", key=f"rm-{row['id']}"):
+                try:
+                    if remove_manual_criterion(profile_name, row["id"]):
+                        _rescore_after_criteria_change(profile_name)
+                        st.success(f"Removed '{row['term']}'.")
+                        st.rerun()
+                    else:
+                        st.error("Could not remove (not a manual row?).")
+                except Exception as exc:
+                    st.error(f"Remove failed: {exc}")
+
+    with st.form("add_manual_criterion", clear_on_submit=True):
+        st.write("**Add a criterion**")
+        form_cols = st.columns([3, 2, 2])
+        with form_cols[0]:
+            new_term = st.text_input(
+                "Term", placeholder="e.g. tableau, healthcare, finance"
+            )
+        with form_cols[1]:
+            new_kind = st.selectbox(
+                "Kind", ["skill", "keyword", "exclude"], index=0
+            )
+        with form_cols[2]:
+            new_weight = st.slider("Weight", min_value=1, max_value=5, value=3)
+        if st.form_submit_button("Add criterion"):
+            if not new_term.strip():
+                st.warning("Term cannot be empty.")
+            else:
+                try:
+                    added = add_manual_criterion(
+                        profile_name,
+                        new_term.strip().lower(),
+                        new_kind,
+                        new_weight,
+                    )
+                    if added is None:
+                        st.warning(
+                            f"'{new_term}' ({new_kind}) already exists."
+                        )
+                    else:
+                        _rescore_after_criteria_change(profile_name)
+                        st.success(
+                            f"Added '{new_term}' ({new_kind}, w={new_weight}). "
+                            "Queue re-scored."
+                        )
+                        st.rerun()
+                except Exception as exc:
+                    st.error(f"Add failed: {exc}")
+
+    st.divider()
+
+    st.subheader("Skills taxonomy (read-only)")
+    st.caption("Edit `config/skills_taxonomy.yaml` and re-parse to change.")
+    try:
+        st.json(list_taxonomy())
+    except Exception as exc:
+        st.error(f"Failed to load taxonomy: {exc}")
