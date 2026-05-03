@@ -30,6 +30,12 @@ DEFAULT_SOURCES = [
         "url": "https://hn.algolia.com/api/v1/search",
         "enabled": True,
     },
+    {
+        "name": "Adzuna",
+        "type": "api",
+        "url": "https://api.adzuna.com/v1/api/jobs/us/search",
+        "enabled": True,
+    },
 ]
 
 

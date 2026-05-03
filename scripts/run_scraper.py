@@ -10,6 +10,7 @@ from sqlalchemy import select
 
 from db.database import get_session
 from db.models import Source
+from scrapers.adzuna import AdzunaScraper
 from scrapers.hackernews_whoishiring import HackerNewsWhoIsHiringScraper
 from scrapers.remoteok import RemoteOKScraper
 from scrapers.remotive import RemotiveScraper
@@ -21,6 +22,7 @@ SCRAPERS = {
     "Remotive": RemotiveScraper,
     "WeWorkRemotely": WeWorkRemotelyScraper,
     "HackerNewsWhoIsHiring": HackerNewsWhoIsHiringScraper,
+    "Adzuna": AdzunaScraper,
 }
 
 # Lowercase short aliases for the CLI single-source form.
@@ -32,6 +34,7 @@ ALIASES = {
     "hackernews": "HackerNewsWhoIsHiring",
     "hackernewswhoishiring": "HackerNewsWhoIsHiring",
     "hn": "HackerNewsWhoIsHiring",
+    "adzuna": "Adzuna",
 }
 
 
