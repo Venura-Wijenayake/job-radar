@@ -139,6 +139,70 @@ def test_get_today_queue_excludes_hidden_and_skipped(basic_setup):
     assert items[3] in item_ids
 
 
+def test_collapse_duplicates_groups_by_title_company(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Lead Analytics Engineer", company="Monzo")
+    b = _add_item(sid, "b", "Lead Analytics Engineer", company="Monzo")
+    c = _add_item(sid, "c", "Data Analyst", company="Acme")
+    _add_score(a, pid, 80)
+    _add_score(b, pid, 70)
+    _add_score(c, pid, 60)
+
+    result = get_today_queue("p1")
+    assert len(result) == 2
+
+    monzo = next(r for r in result if r["company"] == "Monzo")
+    assert monzo["item_id"] == a
+    assert monzo["score"] == 80
+    assert monzo["similar_count"] == 1
+    assert monzo["similar_item_ids"] == [b]
+
+    acme = next(r for r in result if r["company"] == "Acme")
+    assert acme["similar_count"] == 0
+    assert acme["similar_item_ids"] == []
+
+
+def test_collapse_duplicates_keeps_highest_score(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Lead Engineer", company="Monzo")
+    b = _add_item(sid, "b", "Lead Engineer", company="Monzo")
+    _add_score(a, pid, 50)
+    _add_score(b, pid, 80)
+
+    result = get_today_queue("p1")
+    assert len(result) == 1
+    assert result[0]["item_id"] == b
+    assert result[0]["score"] == 80
+    assert result[0]["similar_count"] == 1
+    assert result[0]["similar_item_ids"] == [a]
+
+
+def test_collapse_duplicates_off_returns_all(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Lead Engineer", company="Monzo")
+    b = _add_item(sid, "b", "Lead Engineer", company="Monzo")
+    _add_score(a, pid, 80)
+    _add_score(b, pid, 70)
+
+    result = get_today_queue("p1", collapse_duplicates=False)
+    assert len(result) == 2
+    assert {r["item_id"] for r in result} == {a, b}
+
+
+def test_collapse_handles_empty_company(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Engineer", company=None)
+    b = _add_item(sid, "b", "Engineer", company="")
+    c = _add_item(sid, "c", "Engineer", company="Acme")
+    _add_score(a, pid, 80)
+    _add_score(b, pid, 70)
+    _add_score(c, pid, 60)
+
+    result = get_today_queue("p1")
+    assert len(result) == 3
+    assert all(r["similar_count"] == 0 for r in result)
+
+
 def test_get_today_queue_includes_top_3_matched_terms(basic_setup):
     sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
     iid = _add_item(sid, "x", "Item X")

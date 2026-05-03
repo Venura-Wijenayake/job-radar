@@ -248,10 +248,16 @@ with tab_queue:
             with head_l:
                 st.markdown(_score_badge(item["score"]))
             with head_r:
+                similar = item.get("similar_count", 0)
+                similar_badge = (
+                    f" :gray-background[+{similar} similar]" if similar > 0 else ""
+                )
                 if item["url"]:
-                    st.markdown(f"**[{item['title']}]({item['url']})**")
+                    st.markdown(
+                        f"**[{item['title']}]({item['url']})**{similar_badge}"
+                    )
                 else:
-                    st.markdown(f"**{item['title']}**")
+                    st.markdown(f"**{item['title']}**{similar_badge}")
                 meta_parts = [
                     p
                     for p in [

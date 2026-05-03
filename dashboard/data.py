@@ -65,9 +65,19 @@ def get_today_queue(
     profile_name: str,
     limit: int = 50,
     exclude_statuses: Optional[list[str]] = None,
+    collapse_duplicates: bool = True,
 ) -> list[dict[str, Any]]:
     """Highest-scoring items for a profile, with the current tracking status
-    inlined. Items with status in `exclude_statuses` are filtered out.
+    inlined. Items with status in ``exclude_statuses`` are filtered out.
+
+    When ``collapse_duplicates`` is True (the default), items sharing the
+    same (lowercased title, lowercased company) are grouped and only the
+    highest-scoring one is returned; the kept item carries the count of
+    suppressed siblings on ``similar_count`` and their ids on
+    ``similar_item_ids`` so a future "show all" UI can expand them.
+    Items with empty/missing company are treated as unique and never
+    grouped — different one-person companies posting to the same job
+    title shouldn't be collapsed.
     """
     if exclude_statuses is None:
         exclude_statuses = HIDDEN_FROM_QUEUE
@@ -126,9 +136,40 @@ def get_today_queue(
                         tracking.status.value if tracking is not None else None
                     ),
                     "current_notes": tracking.notes if tracking is not None else None,
+                    "similar_count": 0,
+                    "similar_item_ids": [],
                 }
             )
-        return result
+
+        if not collapse_duplicates:
+            return result
+
+        # Group by (title, company); items with empty company stay unique.
+        grouped: dict[tuple[str, str], dict[str, Any]] = {}
+        for entry in result:
+            title_norm = (entry["title"] or "").strip().lower()
+            company_norm = (entry["company"] or "").strip().lower()
+            if not company_norm:
+                key = ("__unique__", f"id_{entry['item_id']}")
+            else:
+                key = (title_norm, company_norm)
+
+            if key in grouped:
+                grouped[key]["similar_count"] += 1
+                grouped[key]["similar_item_ids"].append(entry["item_id"])
+            else:
+                grouped[key] = entry
+
+        # SQL ordering preserved by dict insertion order; re-sort defensively
+        # in case the highest-scoring per group needs to bubble up.
+        deduped = list(grouped.values())
+        deduped.sort(
+            key=lambda x: (
+                -(x["score"] or 0),
+                -(x["posted_at"].timestamp() if x["posted_at"] else 0),
+            )
+        )
+        return deduped
 
 
 # ----- Pipeline -----
