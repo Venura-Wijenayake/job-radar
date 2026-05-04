@@ -191,6 +191,26 @@ REGIONAL_TERMS_BY_REGION: dict[str, list[str]] = {
     ],
 }
 
+# Buckets from normalize_location that map to the new "foreign" tier —
+# i.e. the user can't take the role from Sacramento.
+FOREIGN_BUCKETS: frozenset[str] = frozenset({
+    "EU", "UK", "Canada", "India", "Brazil", "LatAm",
+    "Asia-Other", "Africa", "Australia/NZ",
+})
+
+
+def _has_foreign_signal(text: str) -> bool:
+    """True when the text contains a term from any foreign LOCATION_RULES bucket.
+
+    Used to override the "remote -> local" shortcut for posts like
+    "Toronto, Remote in Canada" — normalize_location prefers
+    Remote-Global there, but the post is actually Canada-only.
+    """
+    for bucket, terms in LOCATION_RULES:
+        if bucket in FOREIGN_BUCKETS and _has_any(text, terms):
+            return True
+    return False
+
 
 def classify_geo_tier(
     raw_location: str | None,
@@ -199,7 +219,7 @@ def classify_geo_tier(
     home_region: str = "california",
 ) -> str:
     """Bucket a posting's location into "local", "regional", "domestic",
-    or "unknown" relative to the configured home metro/region.
+    "foreign", or "unknown" relative to the configured home metro/region.
 
     Used for display-time soft boosts in the dashboard queue. Independent
     of (and complementary to) ``normalize_location`` which handles
@@ -217,6 +237,18 @@ def classify_geo_tier(
         return "unknown"
 
     text = " | ".join(candidates)
+    bucket = normalize_location(raw_location, body)
+
+    # Foreign: the user can't apply from Sacramento. Checked before the
+    # metro/remote/regional logic so a post like "Toronto, Remote in Canada"
+    # correctly reads as foreign instead of falling into local via the
+    # remote-anywhere shortcut. Both the bucket and a direct text scan
+    # are checked because Remote-Global beats Canada in normalize_location's
+    # rule order, so the bucket alone misses "remote + foreign-city" cases.
+    if bucket in FOREIGN_BUCKETS:
+        return "foreign"
+    if bucket == "Remote-Global" and _has_foreign_signal(text):
+        return "foreign"
 
     metro_terms = HOME_METRO_TERMS.get((home_metro or "").lower(), [])
     regional_terms = REGIONAL_TERMS_BY_REGION.get(
@@ -236,7 +268,6 @@ def classify_geo_tier(
         return "regional"
 
     # Domestic: anything else US — defer to normalize_location's bucket.
-    bucket = normalize_location(raw_location, body)
     if bucket in ("US", "Remote-US", "Remote-Global"):
         return "domestic"
 

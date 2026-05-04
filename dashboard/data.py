@@ -80,6 +80,7 @@ def get_today_queue(
     exclude_statuses: Optional[list[str]] = None,
     collapse_duplicates: bool = True,
     allowed_locations: Optional[list[str]] = None,
+    allowed_geo_tiers: Optional[list[str]] = None,
     english_only: Optional[bool] = None,
     posted_after_days: Optional[int] = None,
     hide_citizenship_required: Optional[bool] = None,
@@ -104,6 +105,13 @@ def get_today_queue(
         When None, falls back to the profile's
         ``metadata_json["allowed_locations"]`` if present, otherwise no
         location filter is applied.
+      ``allowed_geo_tiers`` — list of geo-tier values to keep. Items
+        whose ``geo_tier`` is not in the list are dropped. Strict
+        (no Unknown-leniency) so the default ["local", "regional",
+        "domestic", "unknown"] still drops "foreign" cleanly. When
+        None, falls back to the profile's
+        ``metadata_json["allowed_geo_tiers"]`` if present, otherwise
+        defaults to ["local", "regional", "domestic", "unknown"].
       ``english_only`` — when True, drops items whose
         ``language_detected`` is ``"other"``. ``"en"`` and ``"mixed"`` are
         kept. When None, falls back to the profile's
@@ -137,6 +145,11 @@ def get_today_queue(
         profile_meta = profile.metadata_json or {}
         if allowed_locations is None:
             allowed_locations = profile_meta.get("allowed_locations")
+        if allowed_geo_tiers is None:
+            allowed_geo_tiers = profile_meta.get(
+                "allowed_geo_tiers",
+                ["local", "regional", "domestic", "unknown"],
+            )
         if english_only is None:
             english_only = bool(profile_meta.get("english_only", False))
         if posted_after_days is None:
@@ -222,6 +235,8 @@ def get_today_queue(
             ghost_warning = 50 <= ghost_score < hide_ghost_jobs_above
 
             geo_tier = md.get("geo_tier") or "unknown"
+            if allowed_geo_tiers is not None and geo_tier not in allowed_geo_tiers:
+                continue
             geo_boost = boost_by_tier.get(geo_tier, 0)
             score_value = score.score or 0.0
             display_score = score_value + geo_boost

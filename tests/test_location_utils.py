@@ -129,3 +129,49 @@ def test_state_code_does_not_match_inside_words():
 def test_remote_us_takes_priority_over_remote_global():
     """A post that is both 'remote' AND 'US-only' should bucket as Remote-US."""
     assert normalize_location("Remote, US only") == "Remote-US"
+
+
+# ----- classify_geo_tier: foreign bucket (Phase 4.2.1) -----
+
+
+def test_classify_geo_tier_dublin_is_foreign():
+    assert classify_geo_tier("Dublin, Ireland") == "foreign"
+
+
+def test_classify_geo_tier_bengaluru_is_foreign():
+    assert classify_geo_tier("Bengaluru") == "foreign"
+    assert classify_geo_tier("Bangalore, India") == "foreign"
+
+
+def test_classify_geo_tier_eu_uk_canada_brazil_etc_are_foreign():
+    assert classify_geo_tier("Berlin, Germany") == "foreign"
+    assert classify_geo_tier("London, UK") == "foreign"
+    assert classify_geo_tier("Toronto, Ontario") == "foreign"
+    assert classify_geo_tier("São Paulo") == "foreign"
+    assert classify_geo_tier("Mexico City") == "foreign"
+    assert classify_geo_tier("Tokyo, Japan") == "foreign"
+    assert classify_geo_tier("Sydney, Australia") == "foreign"
+
+
+def test_classify_geo_tier_toronto_remote_is_foreign_not_local():
+    """The bug fix: 'Toronto, Remote in Canada' must NOT fall into 'local'
+    via the remote-anywhere shortcut. Foreign signal beats remote."""
+    assert classify_geo_tier("Toronto, Remote in Canada") == "foreign"
+    assert classify_geo_tier("Remote — Canada") == "foreign"
+    assert classify_geo_tier("Bengaluru / Remote") == "foreign"
+
+
+def test_classify_geo_tier_us_remote_still_local():
+    """Regression: bare 'Remote' (no foreign signal) is still local."""
+    assert classify_geo_tier("Remote") == "local"
+    assert classify_geo_tier("Remote, Worldwide") == "local"
+    # The remote-anywhere shortcut still wins for Remote-US buckets too,
+    # which is what we want — a US-only remote post is fine from Sacramento.
+    assert classify_geo_tier("Remote (US)") == "local"
+
+
+def test_classify_geo_tier_us_locations_unaffected():
+    """Regression: US locations classify the same as before the foreign change."""
+    assert classify_geo_tier("Sacramento, CA") == "local"
+    assert classify_geo_tier("San Francisco") == "regional"
+    assert classify_geo_tier("Austin, Texas") == "domestic"

@@ -208,6 +208,64 @@ def test_get_today_queue_filters_unknown_location_lenient(basic_setup):
     assert {r["item_id"] for r in result} == {a, b}
 
 
+def test_get_today_queue_filters_foreign_by_default(basic_setup):
+    """Items with geo_tier='foreign' are dropped at default settings —
+    profile metadata's allowed_geo_tiers excludes 'foreign'."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    with get_session() as session:
+        profile = session.execute(
+            select(Profile).where(Profile.id == pid)
+        ).scalar_one()
+        profile.metadata_json = {
+            "allowed_geo_tiers": ["local", "regional", "domestic", "unknown"],
+        }
+        session.commit()
+
+    a = _add_item(sid, "a", "Local Item", company="Acme", geo_tier="local")
+    b = _add_item(sid, "b", "Domestic Item", company="Beta", geo_tier="domestic")
+    c = _add_item(sid, "c", "Foreign Item", company="Gamma", geo_tier="foreign")
+    d = _add_item(sid, "d", "Unknown Item", company="Delta", geo_tier="unknown")
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+    _add_score(c, pid, 90)  # high score but should still be filtered out
+    _add_score(d, pid, 50)
+
+    result = get_today_queue("p1")
+    item_ids = {r["item_id"] for r in result}
+    assert c not in item_ids
+    assert {a, b, d} == item_ids
+
+
+def test_get_today_queue_includes_foreign_when_explicitly_allowed(basic_setup):
+    """When the caller passes allowed_geo_tiers including 'foreign',
+    foreign items appear in the queue."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Local Item", company="Acme", geo_tier="local")
+    b = _add_item(sid, "b", "Foreign Item", company="Beta", geo_tier="foreign")
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+
+    result = get_today_queue(
+        "p1",
+        allowed_geo_tiers=["local", "regional", "domestic", "unknown", "foreign"],
+    )
+    assert {r["item_id"] for r in result} == {a, b}
+
+
+def test_get_today_queue_foreign_filter_uses_profile_metadata_default(basic_setup):
+    """When the profile has no allowed_geo_tiers metadata, the function
+    still defaults to excluding 'foreign'."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    # Profile metadata is empty — no allowed_geo_tiers key
+    a = _add_item(sid, "a", "Local Item", company="Acme", geo_tier="local")
+    b = _add_item(sid, "b", "Foreign Item", company="Beta", geo_tier="foreign")
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+
+    result = get_today_queue("p1")
+    assert {r["item_id"] for r in result} == {a}
+
+
 def test_geo_boost_local_outranks_higher_score_domestic(basic_setup):
     """Local item raw 60 + boost 20 = 80 should outrank domestic item
     raw 70 + boost 0 = 70."""

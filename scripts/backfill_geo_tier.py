@@ -43,7 +43,7 @@ def main() -> None:
 
     print(f"Backfilled {updated} items.")
     print("Geo-tier distribution:")
-    for tier in ("local", "regional", "domestic", "unknown"):
+    for tier in ("local", "regional", "domestic", "unknown", "foreign"):
         print(f"  {tier:<10} {counts.get(tier, 0)}")
 
 
