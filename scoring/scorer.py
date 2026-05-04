@@ -1,22 +1,25 @@
 """Score a single Item against a single Profile.
 
-Per-criterion contributions:
-  - skill:    min(occurrences, 3) * weight
-  - role:     8 * weight if found anywhere; doubled (16 * weight) if
-              the role term appears in the item title. The 8x base
-              (up from the original 5x) makes role matches more
-              decisive without overwhelming the skill signal.
-  - keyword:  min(occurrences, 2) * weight
-  - exclude:  -10 * weight if found
+Phase 4.7 — this module is now a thin shim over scoring/match_score_v2.
+The v2 sub-component formula:
+
+  match_score = (
+      role_match_score    * 0.35
+    + skill_match_score   * 0.40
+    + title_family_score  * 0.15
+    + body_keyword_score  * 0.10
+  ) * 100
+
+The matched-terms list returned via score_item_raw is reshaped from
+the v2 breakdown into the v1-compatible {term, kind, contribution}
+shape that the dashboard's top_matched_terms field expects, so
+downstream UI keeps working without changes.
 
 Public API:
   score_item_raw(item, profile, session, criteria=None)
       -> (raw_score, matched_terms): pure computation, no persistence.
 
   score_item(item, profile, session) -> Score: persists a Score row.
-      The `score` field uses theoretical-max normalization for backwards
-      compatibility with single-item callers; batch.score_all_items
-      overrides it with dataset-relative normalization.
 """
 from __future__ import annotations
 
@@ -27,48 +30,25 @@ from sqlalchemy.orm import Session
 
 from db.models import Criterion, Item, Profile, Score
 
-from .text_utils import clean_html, find_term_in_text, normalize_unicode
+from .land_score import load_role_families
+from .match_score_v2 import (
+    compute_match_score,
+    matched_terms_from_breakdown,
+)
 
-# Multipliers — bumped from 5 to 8 in Phase 2.5 to make role hits more
-# decisive in the final ranking.
-ROLE_BASE_MULT = 8
-ROLE_TITLE_BOOST = 2
-SKILL_OCC_CAP = 3
-KEYWORD_OCC_CAP = 2
-EXCLUDE_PENALTY = -10
+# Cached YAML config loaded lazily on first scoring call.
+_role_families_cfg: dict | None = None
+
+
+def _families() -> dict:
+    global _role_families_cfg
+    if _role_families_cfg is None:
+        _role_families_cfg = load_role_families()
+    return _role_families_cfg
 
 
 def _now_utc_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
-def _max_contribution(c: Criterion) -> float:
-    if c.kind == "skill":
-        return SKILL_OCC_CAP * c.weight
-    if c.kind == "role":
-        return ROLE_BASE_MULT * c.weight * ROLE_TITLE_BOOST
-    if c.kind == "keyword":
-        return KEYWORD_OCC_CAP * c.weight
-    return 0  # exclude only contributes negatively
-
-
-def _theoretical_max(criteria: list[Criterion]) -> float:
-    return float(sum(_max_contribution(c) for c in criteria))
-
-
-def _contribution(c: Criterion, occurrences: int, in_title: bool) -> float:
-    if c.kind == "exclude":
-        return float(EXCLUDE_PENALTY * c.weight) if occurrences > 0 else 0.0
-    if occurrences == 0:
-        return 0.0
-    if c.kind == "skill":
-        return float(min(occurrences, SKILL_OCC_CAP) * c.weight)
-    if c.kind == "role":
-        base = ROLE_BASE_MULT * c.weight
-        return float(base * ROLE_TITLE_BOOST if in_title else base)
-    if c.kind == "keyword":
-        return float(min(occurrences, KEYWORD_OCC_CAP) * c.weight)
-    return 0.0
 
 
 def _load_criteria(session: Session, profile_id: int) -> list[Criterion]:
@@ -81,47 +61,41 @@ def _load_criteria(session: Session, profile_id: int) -> list[Criterion]:
     )
 
 
+def _criteria_to_dicts(criteria: list[Criterion]) -> list[dict]:
+    return [
+        {
+            "term": c.term,
+            "kind": c.kind,
+            "weight": c.weight,
+            "weight_tier": int(getattr(c, "weight_tier", 2) or 2),
+        }
+        for c in criteria
+    ]
+
+
 def score_item_raw(
     item: Item,
     profile: Profile,
     session: Session,
     criteria: list[Criterion] | None = None,
 ) -> tuple[float, list[dict]]:
-    """Compute raw score and matched-terms list for one item. No persistence.
+    """Compute v2 match_score and a v1-shaped matched-terms list.
 
-    Floored at zero. Used both by ``score_item`` (single-item, theoretical-
-    max normalization) and by ``batch.score_all_items`` (two-pass, dataset-
-    relative normalization). Pass ``criteria`` to avoid a redundant query
-    when scoring many items against the same profile.
+    Returns ``(raw_score, matched_terms)``. Floored at zero. Pass
+    ``criteria`` to avoid a redundant query when scoring many items
+    against the same profile.
     """
-    title_clean = normalize_unicode(clean_html(item.title or ""))
-    body_clean = normalize_unicode(clean_html(item.body or ""))
-
     if criteria is None:
         criteria = _load_criteria(session, profile.id)
 
-    raw_score = 0.0
-    matched: list[dict] = []
-    for c in criteria:
-        title_offsets = find_term_in_text(c.term, title_clean)
-        body_offsets = find_term_in_text(c.term, body_clean)
-        occurrences = len(title_offsets) + len(body_offsets)
-        in_title = bool(title_offsets)
-        contribution = _contribution(c, occurrences, in_title)
-        if contribution != 0:
-            matched.append(
-                {
-                    "term": c.term,
-                    "kind": c.kind,
-                    "weight": c.weight,
-                    "occurrences": occurrences,
-                    "contribution": contribution,
-                    "in_title": in_title,
-                }
-            )
-            raw_score += contribution
+    item_dict = {"title": item.title or "", "body": item.body or ""}
+    profile_criteria = _criteria_to_dicts(criteria)
 
-    return max(0.0, raw_score), matched
+    score, breakdown = compute_match_score(
+        item_dict, profile_criteria, _families()
+    )
+    matched = matched_terms_from_breakdown(breakdown)
+    return max(0.0, score), matched
 
 
 def upsert_score(
@@ -163,16 +137,12 @@ def upsert_score(
 
 
 def score_item(item: Item, profile: Profile, session: Session) -> Score:
-    """Score one item and persist. The ``score`` field is theoretical-max-
-    normalized — for dataset-relative normalization across many items,
-    use ``batch.score_all_items`` instead."""
+    """Score one item and persist. v2 emits a 0-100 raw score directly,
+    so the persisted ``score`` field equals the raw_score for single-
+    item callers. Batch scoring (``batch.score_all_items``) optionally
+    re-normalises across the dataset for legacy callers."""
     criteria = _load_criteria(session, profile.id)
     raw, matched = score_item_raw(item, profile, session, criteria=criteria)
-
-    max_possible = _theoretical_max(criteria)
-    if max_possible > 0:
-        normalized = min(100.0, max(0.0, (raw / max_possible) * 100))
-    else:
-        normalized = 0.0
-
-    return upsert_score(item.id, profile.id, normalized, raw, matched, session)
+    # v2 raw_score is already on a 0-100 scale, so no further
+    # normalization is needed for single-item callers.
+    return upsert_score(item.id, profile.id, raw, raw, matched, session)

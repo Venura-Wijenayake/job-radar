@@ -21,7 +21,7 @@ families:
       - "junior data analyst"
       - "associate data analyst"
       - "data analyst"
-    multiplier: 1.0
+    multiplier: 1.00
 
   - name: data_analyst_adjacent
     patterns:
@@ -32,7 +32,7 @@ families:
       - "analytics engineer"
       - "data scientist"
       - "junior data scientist"
-    multiplier: 0.95
+    multiplier: 0.97
 
   - name: operations_quant_research_analyst
     patterns:
@@ -47,7 +47,7 @@ families:
       - "trust and safety analyst"
       - "trust & safety analyst"
       - "people analytics"
-    multiplier: 0.85
+    multiplier: 0.95
 
   # B-tier: junior dev / QA / IT pivot - equal weight per user spec
   - name: junior_dev
@@ -65,7 +65,7 @@ families:
       - "junior fullstack"
       - "junior python"
       - "junior web developer"
-    multiplier: 1.0
+    multiplier: 0.95
 
   - name: qa_tester
     patterns:
@@ -77,7 +77,7 @@ families:
       - "test engineer"
       - "junior test engineer"
       - "qa automation"
-    multiplier: 1.0
+    multiplier: 0.95
 
   - name: it_support_pivot
     # IT Support / Help Desk: realistic landings, slight penalty since
@@ -97,7 +97,7 @@ families:
       - "tier 1 support"
       - "tier 2 support"
       - "deskside support"
-    multiplier: 0.85
+    multiplier: 0.90
 
   # C-tier: CS-adjacent but lower fit
   - name: cs_adjacent_misc
@@ -112,10 +112,12 @@ families:
       - "junior sre"
       - "noc analyst"
       - "network technician"
-    multiplier: 0.75
+    multiplier: 0.88
 
-# Default for anything not matched: 0.7 (neutral-leaning-cautious).
-# Forces unmapped titles to be slightly penalized rather than getting
-# full weight by default. User can promote families later as they
-# encounter relevant unmapped roles.
-default_multiplier: 0.70
+# Default for anything not matched. Phase 4.7 narrowed the
+# land_score-side multiplier range from 0.65-1.0 to 0.85-1.0 because
+# title_family is now also a sub-component of match_score (with a
+# wider 0.40-1.00 range). Stacking both ranges would double-count the
+# family penalty; this narrower band keeps land_score's role as a
+# soft re-rank rather than a second-pass score halver.
+default_multiplier: 0.85

@@ -328,14 +328,12 @@ def test_get_today_queue_includes_land_score_breakdown_in_dict(basic_setup):
 
 
 def test_skill_density_actually_fires_when_jd_has_skills(basic_setup):
-    """Phase 4.6b.1 regression: when a JD body contains skills the user
-    has tier-weighted criteria for, the breakdown's skills_matched_terms
-    must be non-empty AND skill_density_bonus must be > 0."""
+    """Phase 4.7 regression: when a JD body contains tier-weighted
+    skills the user has criteria for, skills_matched_terms is
+    populated and skill_density_bonus is finite (>= -0.20)."""
     sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
-    # Add tier-1 criteria
     _add_criterion(pid, "python", kind="skill", weight=3)
     _add_criterion(pid, "sql", kind="skill", weight=3)
-    # Promote them to tier 1 (the migration default is tier 2)
     with get_session() as session:
         crits = session.execute(
             select(Criterion).where(Criterion.profile_id == pid)
@@ -356,10 +354,12 @@ def test_skill_density_actually_fires_when_jd_has_skills(basic_setup):
     breakdown = result[0]["land_score_breakdown"]
     matched = [t.lower() for t in breakdown["skills_matched_terms"]]
     assert matched, "skills_matched_terms must not be empty"
-    assert "python" in matched and "sql" in matched
-    # With only 2 tier-1 criteria and both matched, normalized=1.0 →
-    # bonus should hit the +0.30 ceiling.
-    assert breakdown["skill_density_bonus"] > 0
+    assert "python" in matched
+    assert "sql" in matched
+    # Two tier-1 hits = 6 points / TARGET 16 = 0.375 normalized →
+    # bonus = -0.20 + (0.20/0.4) × 0.375 = -0.0125 (just below zero).
+    # The point: bonus is finite and not stuck at the floor.
+    assert breakdown["skill_density_bonus"] > -0.20
 
 
 def test_skill_density_excludes_anti_keyword_criteria(basic_setup):

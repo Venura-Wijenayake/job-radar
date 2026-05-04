@@ -81,47 +81,48 @@ def test_skill_density_bonus_zero_when_no_criteria():
 
 
 def test_skill_density_bonus_negative_when_empty_body():
-    """No body to scan → no matches → maximum penalty (-0.30)."""
+    """No body to scan → no matches → maximum penalty (-0.20)."""
     crits = [{"term": "python", "weight_tier": 2}]
     bonus, matched = _compute_skill_density_bonus("", crits)
-    assert bonus == -0.3
+    assert bonus == -0.20
     assert matched == []
 
 
-def test_skill_density_bonus_positive_when_tier_1_matches():
-    """Match all tier-1 criteria → normalized 1.0 → +0.30 bonus."""
+def test_skill_density_bonus_saturates_at_target():
+    """Hitting 8+ tier-2 skill points (= TARGET_DENSITY_POINTS=16)
+    saturates the bonus at +0.30."""
     crits = [
-        {"term": "ITIL", "weight_tier": 1},
-        {"term": "Active Directory", "weight_tier": 1},
+        {"term": f"skill{i}", "weight_tier": 2} for i in range(10)
     ]
-    body = "Looking for ITIL certification + Active Directory experience."
+    body = " ".join(f"skill{i}" for i in range(10))
     bonus, matched = _compute_skill_density_bonus(body, crits)
-    assert bonus == 0.3
-    assert set(matched) == {"ITIL", "Active Directory"}
+    assert bonus == 0.30
+    assert len(matched) == 10
 
 
-def test_skill_density_bonus_zero_at_half_match():
-    """Tier-balanced corpus, half matched → normalized 0.5 → 0.0 bonus."""
-    crits = [
-        {"term": "python", "weight_tier": 2},
-        {"term": "tableau", "weight_tier": 2},
-    ]
-    body = "We use python every day."
-    bonus, _ = _compute_skill_density_bonus(body, crits)
-    assert bonus == 0.0
-
-
-def test_skill_density_bonus_tier_weights_dominate():
-    """Tier-1 (weight 3) match outweighs a tier-3 (weight 1) miss."""
-    crits = [
-        {"term": "ITIL", "weight_tier": 1},   # weight 3
-        {"term": "obscure-skill", "weight_tier": 3},  # weight 1
-    ]
-    # max possible = 3 + 1 = 4. Match the tier-1 only → 3/4 = 0.75 → +0.15
-    body = "ITIL v4 required."
+def test_skill_density_bonus_tier_1_match_weights_3_each():
+    """4 tier-1 matches = 12 points. 12 / 16 = 0.75 normalised. Above
+    the 0.4 inflection so bonus = 0.30 / 0.6 × (0.75 − 0.4) = 0.175."""
+    crits = [{"term": f"t{i}", "weight_tier": 1} for i in range(4)]
+    body = " ".join(f"t{i}" for i in range(4))
     bonus, matched = _compute_skill_density_bonus(body, crits)
-    assert matched == ["ITIL"]
-    assert abs(bonus - 0.15) < 0.001
+    assert len(matched) == 4
+    assert abs(bonus - 0.175) < 0.001
+
+
+def test_skill_density_bonus_zero_at_inflection_point():
+    """Normalized = 0.4 should produce bonus exactly 0.0 (the linear
+    segment switches sign at this point)."""
+    # 0.4 * TARGET=16 = 6.4 points. 3 tier-2 matches = 6 points → 0.375
+    # → bonus < 0. 4 tier-2 matches = 8 points → 0.5 → bonus > 0.
+    # Test the critical region:
+    crits = [{"term": f"s{i}", "weight_tier": 2} for i in range(8)]
+    # Match exactly 4 — which gives 8/16 = 0.5 normalized.
+    body = "s0 s1 s2 s3"
+    bonus, matched = _compute_skill_density_bonus(body, crits)
+    assert len(matched) == 4
+    # bonus = 0.30/0.6 × (0.5 − 0.4) = 0.05
+    assert abs(bonus - 0.05) < 0.001
 
 
 # ----- source quality -----

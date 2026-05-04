@@ -27,6 +27,12 @@ from .text_utils import term_pattern
 
 _CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 
+# Phase 4.7: skill density saturates when a JD hits this many
+# mid-tier skill points (= 8 distinct skills × avg tier-2 weight 2).
+# Same target as match_score_v2's TARGET_SKILL_DENSITY so the two
+# layers agree on what "fully matched" means.
+TARGET_DENSITY_POINTS = 16
+
 # ----- Config loaders -----
 
 
@@ -64,22 +70,27 @@ def _compute_skill_density_bonus(
     body: str | None,
     profile_criteria: list[dict[str, Any]],
 ) -> tuple[float, list[str]]:
-    """Return ``(bonus, matched_terms)`` where bonus is in [-0.3, +0.3].
+    """Return ``(bonus, matched_terms)`` where bonus is in [-0.20, +0.30].
 
-    Counts criteria-term hits in the body weighted by tier (3/2/1).
-    Normalised by the maximum possible score (sum of tier weights for
-    every criterion). Linear interpolation: 0% matched -> -0.3, 50%
-    -> 0, 100% -> +0.3.
+    Phase 4.7 — divisor switched from "sum of all criterion tier
+    weights" (~39 for the user's 19-criterion profile, which the
+    largest realistic JD could never approach) to a target-density
+    constant. A JD that hits 8 distinct mid-tier skills lands at
+    normalised=1.0, matching match_score's TARGET_SKILL_DENSITY
+    threshold so the two layers agree on what "comprehensively
+    aligned" looks like.
+
+    Asymmetric clamp range: down to -0.20, up to +0.30. The match-
+    score layer already rewards skill density at 40% weight, so the
+    land_score density bonus penalises softer than it rewards — it's
+    a tilt, not a doubling.
     """
-    if not profile_criteria:
+    target_points = TARGET_DENSITY_POINTS
+    if not profile_criteria or target_points <= 0:
         return 0.0, []
     text = (body or "").lower()
     if not text:
-        return -0.3, []
-
-    max_total = sum(_tier_weight(c.get("weight_tier", 2)) for c in profile_criteria)
-    if max_total <= 0:
-        return 0.0, []
+        return -0.2, []
 
     matched_score = 0
     matched_terms: list[str] = []
@@ -91,9 +102,15 @@ def _compute_skill_density_bonus(
             matched_score += _tier_weight(c.get("weight_tier", 2))
             matched_terms.append(term)
 
-    normalized = matched_score / max_total
-    bonus = -0.3 + 0.6 * normalized
-    return max(-0.3, min(0.3, bonus)), matched_terms
+    normalized = min(1.0, matched_score / target_points)
+    # Asymmetric: 0 hits -> -0.20, target+ -> +0.30. Linear segment
+    # passes through 0 at normalized=0.4 (the rough density of a
+    # mid-fit JD).
+    if normalized <= 0.4:
+        bonus = -0.20 + (0.20 / 0.4) * normalized
+    else:
+        bonus = (0.30 / 0.6) * (normalized - 0.4)
+    return max(-0.20, min(0.30, bonus)), matched_terms
 
 
 # ----- Source quality -----

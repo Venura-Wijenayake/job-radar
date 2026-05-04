@@ -27,15 +27,14 @@ def _bucket(score: float) -> str:
 
 
 def score_all_items(profile_name: str, force: bool = False) -> dict:
-    """Two-pass scoring against a named profile.
+    """Single-pass scoring against a named profile.
 
-    Pass 1 collects raw scores for every item (recomputed unless an
-    existing score is fresher than the profile's last parse). Pass 2
-    finds ``max_raw`` across the dataset and normalizes every item to
-    ``raw / max_raw * 100``. The dataset-relative normalization spreads
-    scores across the 0-100 range — replacing the original theoretical-
-    maximum normalization, which was unreachable in practice and pinned
-    every item below 25.
+    Phase 4.7: v2 ``score_item_raw`` emits a 0-100 score directly, so
+    the second-pass dataset-relative normalisation that v1 relied on is
+    no longer needed. The Score row's ``score`` field equals
+    ``raw_score`` for every item — both columns kept in sync for
+    backwards-compatible downstream consumers (the dashboard reads
+    ``score``; older queries may inspect ``raw_score``).
     """
     summary = {
         "total_items": 0,
@@ -72,8 +71,6 @@ def score_all_items(profile_name: str, force: bool = False) -> dict:
             .all()
         }
 
-        # ----- Pass 1: gather raw scores -----
-        raw_data: dict[int, tuple[float, list[dict]]] = {}
         for item in items:
             try:
                 if not force:
@@ -84,34 +81,19 @@ def score_all_items(profile_name: str, force: bool = False) -> dict:
                         and profile.parsed_at is not None
                         and cached.computed_at >= profile.parsed_at
                     ):
-                        raw_data[item.id] = (
-                            float(cached.raw_score),
-                            list(cached.matched_terms_json or []),
-                        )
                         summary["skipped"] += 1
+                        summary["score_distribution"][_bucket(cached.score)] += 1
                         continue
 
-                raw, matched = score_item_raw(item, profile, session, criteria=criteria)
-                raw_data[item.id] = (raw, matched)
+                raw, matched = score_item_raw(
+                    item, profile, session, criteria=criteria
+                )
+                upsert_score(item.id, profile.id, raw, raw, matched, session)
                 summary["scored"] += 1
+                summary["score_distribution"][_bucket(raw)] += 1
             except Exception as exc:
                 summary["errors"] += 1
                 print(f"[scorer] error on item {item.id}: {exc}")
-
-        # ----- Pass 2: dataset-relative normalize and upsert -----
-        max_raw = max((r for r, _ in raw_data.values()), default=0.0)
-
-        for item_id, (raw, matched) in raw_data.items():
-            try:
-                if max_raw > 0:
-                    normalized = min(100.0, max(0.0, (raw / max_raw) * 100))
-                else:
-                    normalized = 0.0
-                upsert_score(item_id, profile.id, normalized, raw, matched, session)
-                summary["score_distribution"][_bucket(normalized)] += 1
-            except Exception as exc:
-                summary["errors"] += 1
-                print(f"[scorer] persist error on item {item_id}: {exc}")
 
         session.commit()
 
