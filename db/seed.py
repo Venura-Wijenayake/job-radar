@@ -36,6 +36,12 @@ DEFAULT_SOURCES = [
         "url": "https://api.adzuna.com/v1/api/jobs/us/search",
         "enabled": True,
     },
+    {
+        "name": "Greenhouse",
+        "type": "api",
+        "url": "https://boards-api.greenhouse.io/v1/boards",
+        "enabled": True,
+    },
 ]
 
 
