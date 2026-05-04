@@ -1,13 +1,29 @@
 """Set criteria.weight_tier on the venura_data_analyst profile.
 
-Phase 4.6b — assigns tier 1 / 2 / 3 to existing resume-derived
-criteria using a hardcoded mapping sourced from the user's actual
-resume content (Dell hardware tech experience, ITIL cert, Linux
-Essentials, Python automation, basic SQL/Excel). Criteria not in
-any tier list keep the default tier 2.
+Phase 4.6b.1 fix — the original tier lists used multi-word phrases
+("it support", "linux cli") that don't exist in the actual criteria
+table (resume-extracted tokens are single words). The remapped lists
+below match the user's real criterion terms (data tooling and
+programming languages from a CS-grad pivoting toward data work) so
+the skill_density_bonus actually fires instead of every item ending
+up at the -30% floor.
 
-Idempotent — re-running with the same mapping is a no-op for already-
-calibrated rows. Run after migrate_add_weight_tier.py.
+Strategy:
+  Tier 1 (3 points) — deepest hands-on tooling for the project the
+    user actually built (Streamlit + pandas + Python). These match
+    nearly every data-analyst JD and validate real fit.
+  Tier 2 (2 points, also the default) — real and adjacent ecosystem.
+    Falling here means "no change" from the migration default.
+  Tier 3 (1 point) — present in the resume / criteria but generic
+    or shallow signal. Includes the role keyword and unrelated
+    languages from a CS-grad's general toolset.
+
+Skipped: kind=exclude rows (anti-keywords like "senior" / "principal").
+These never represent skills the user has and shouldn't contribute to
+skill density at all; dashboard/data.py filters them out before
+passing the criteria list to compute_land_score.
+
+Idempotent. Run after migrate_add_weight_tier.py.
 """
 from __future__ import annotations
 
@@ -25,41 +41,33 @@ from db.models import Criterion, Profile
 
 PROFILE_NAME = "venura_data_analyst"
 
+# Single-token forms — the actual shape of criteria in the DB.
 TIER_1_SKILLS: set[str] = {
-    "it support",
-    "hardware diagnostics",
-    "windows",
-    "active directory",
-    "ticketing",
-    "itil",
-    "linux cli",
-    "linux",
-    "troubleshooting",
-    "incident response",
-    "service desk",
-    "help desk",
-    "office 365",
-    "microsoft office",
-}
-
-TIER_2_SKILLS: set[str] = {
     "python",
     "sql",
     "excel",
     "git",
     "github",
-    "command line",
-    "automation",
-    "documentation",
+    "pandas",
+    "jupyter",
+}
+
+TIER_2_SKILLS: set[str] = {
+    "analytics",
+    "numpy",
+    "plotly",
+    "streamlit",
+    "sqlite",
+    "eda",
 }
 
 TIER_3_SKILLS: set[str] = {
-    "data validation",
-    "scripting",
-    "shell",
-    "bash",
-    "powershell",
-    "data cleaning",
+    "mongodb",
+    "c++",
+    "java",
+    "javascript",
+    "anomaly detection",
+    "data analyst",
 }
 
 
@@ -71,7 +79,7 @@ def _classify(term: str) -> int:
         return 2
     if t in TIER_3_SKILLS:
         return 3
-    return 2  # default
+    return 2  # default — falls through to "real" tier
 
 
 def main() -> None:

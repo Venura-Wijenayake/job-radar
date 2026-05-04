@@ -322,9 +322,14 @@ def get_today_queue(
         profile_criteria_terms: set[str] = {
             (c.term or "").lower() for c in criteria_rows
         }
+        # Phase 4.6b.1: exclude criteria are anti-keywords (e.g. "senior",
+        # "principal") — they're not skills the user has, and should not
+        # contribute to the land_score skill_density_bonus. Filter them
+        # out before handing the list to compute_land_score.
         profile_criteria_for_land: list[dict[str, Any]] = [
             {"term": c.term, "weight_tier": int(getattr(c, "weight_tier", 2) or 2)}
             for c in criteria_rows
+            if (c.kind or "") != "exclude"
         ]
 
         # Phase 4.6b: pre-load land_score config once. YAML reads happen

@@ -327,6 +327,67 @@ def test_get_today_queue_includes_land_score_breakdown_in_dict(basic_setup):
         assert key in breakdown
 
 
+def test_skill_density_actually_fires_when_jd_has_skills(basic_setup):
+    """Phase 4.6b.1 regression: when a JD body contains skills the user
+    has tier-weighted criteria for, the breakdown's skills_matched_terms
+    must be non-empty AND skill_density_bonus must be > 0."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    # Add tier-1 criteria
+    _add_criterion(pid, "python", kind="skill", weight=3)
+    _add_criterion(pid, "sql", kind="skill", weight=3)
+    # Promote them to tier 1 (the migration default is tier 2)
+    with get_session() as session:
+        crits = session.execute(
+            select(Criterion).where(Criterion.profile_id == pid)
+        ).scalars().all()
+        for c in crits:
+            if c.term in ("python", "sql"):
+                c.weight_tier = 1
+        session.commit()
+
+    iid = _add_item(
+        sid, "x", "Data Analyst",
+        body="We use Python and SQL daily.",
+    )
+    _add_score(iid, pid, 70)
+
+    result = get_today_queue("p1")
+    assert len(result) == 1
+    breakdown = result[0]["land_score_breakdown"]
+    matched = [t.lower() for t in breakdown["skills_matched_terms"]]
+    assert matched, "skills_matched_terms must not be empty"
+    assert "python" in matched and "sql" in matched
+    # With only 2 tier-1 criteria and both matched, normalized=1.0 →
+    # bonus should hit the +0.30 ceiling.
+    assert breakdown["skill_density_bonus"] > 0
+
+
+def test_skill_density_excludes_anti_keyword_criteria(basic_setup):
+    """Phase 4.6b.1: kind=exclude criteria (e.g. 'senior', 'principal')
+    are anti-keywords, not skills. They must not contribute to the
+    skill_density_bonus even when the JD body contains them — otherwise
+    a senior-titled role would falsely boost its own density score."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    # exclude rows: should be ignored by density
+    _add_criterion(pid, "senior", kind="exclude", weight=3)
+    _add_criterion(pid, "principal", kind="exclude", weight=3)
+    # one real skill the body doesn't contain
+    _add_criterion(pid, "python", kind="skill", weight=3)
+
+    iid = _add_item(
+        sid, "x", "Senior Data Analyst",
+        body="Senior-level role for a principal contributor.",
+    )
+    _add_score(iid, pid, 70)
+
+    result = get_today_queue("p1")
+    breakdown = result[0]["land_score_breakdown"]
+    # No skill matches — exclude rows are filtered out before density.
+    assert breakdown["skills_matched_terms"] == []
+    # And the bonus floors at the empty-match -0.30 (no skills found)
+    assert breakdown["skill_density_bonus"] < 0
+
+
 def test_get_today_queue_industry_placeholder_field(basic_setup):
     """Phase 4.6b reserves an ``industry`` field on each row for the
     Phase 4.6c LLM classifier. For now it should default to None when
