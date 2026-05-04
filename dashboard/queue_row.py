@@ -101,6 +101,40 @@ def _truncate(text: str, max_len: int) -> str:
     return text[: max_len - 1] + "…"
 
 
+def _format_breakdown(b: dict) -> str:
+    """Render land_score_breakdown as a fixed-width text block.
+
+    Each line shows one multiplier and the human-readable reason that
+    produced it. The leading values are right-aligned so multipliers
+    eyeball-align cleanly when scanning a Details panel.
+    """
+    matched_terms = b.get("skills_matched_terms") or []
+    matched_summary = (
+        ", ".join(matched_terms[:5])
+        + (f" (+{len(matched_terms) - 5} more)" if len(matched_terms) > 5 else "")
+    ) or "none"
+
+    lines = [
+        f"Match score:           {b.get('match_score', 0):>6.1f}",
+        f"x Skill density:       {b.get('skill_density_bonus', 0):+.2%}    "
+        f"matched: {matched_summary}",
+        f"x Source quality:      x{b.get('source_quality_mult', 1.0):.2f}",
+        f"x Title family:        x{b.get('title_family_mult', 1.0):.2f}    "
+        f"({b.get('title_family_matched', 'default')})",
+        f"x Experience match:    x{b.get('experience_match_mult', 1.0):.2f}",
+        f"x Salary band:         x{b.get('salary_mult', 1.0):.2f}    "
+        f"({b.get('salary_reason', '')})",
+        f"x Eligibility:         x{b.get('eligibility_mult', 1.0):.2f}"
+        + (
+            f"    (blocked: {b['eligibility_reason']})"
+            if b.get("eligibility_reason")
+            else ""
+        ),
+        f"= Land score:          {b.get('land_score', 0):>6.1f}",
+    ]
+    return "\n".join(lines)
+
+
 def render_queue_row(
     item: dict,
     profile_id: Optional[int],
@@ -111,8 +145,15 @@ def render_queue_row(
         # Row 1 — score on the left, title + meta + tier badges on the right.
         col_score, col_title = st.columns([1, 8])
         with col_score:
-            display_score = item.get("display_score") or item.get("score") or 0
-            st.markdown(_score_badge(display_score))
+            # Phase 4.6b: land_score is the primary badge — sort key
+            # and the user-facing "how landable is this" number.
+            primary_score = (
+                item.get("land_score")
+                or item.get("display_score")
+                or item.get("score")
+                or 0
+            )
+            st.markdown(_score_badge(primary_score))
         with col_title:
             badges = ""
             similar = item.get("similar_count", 0) or 0
@@ -180,6 +221,10 @@ def render_queue_row(
                 on_status_change(item["item_id"], profile_id, "hidden")
 
         with st.expander("Details", expanded=False):
+            breakdown = item.get("land_score_breakdown") or {}
+            if breakdown:
+                st.markdown("**Why this score?**")
+                st.code(_format_breakdown(breakdown), language="text")
             top_terms = item.get("top_matched_terms") or []
             if top_terms:
                 st.markdown(

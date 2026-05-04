@@ -61,6 +61,11 @@ class Criterion(Base):
     profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"), nullable=False)
     term: Mapped[str] = mapped_column(String, nullable=False)
     weight: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    # Phase 4.6b: 1 = strongest signal in resume, 2 = real, 3 = mentioned.
+    # Drives the land_score skill-density bonus.
+    weight_tier: Mapped[int] = mapped_column(
+        Integer, default=2, server_default="2", nullable=False
+    )
     kind: Mapped[str] = mapped_column(String, nullable=False)
     match_type: Mapped[str] = mapped_column(String, default="fuzzy", nullable=False)
     source: Mapped[str] = mapped_column(String, default="resume", nullable=False)

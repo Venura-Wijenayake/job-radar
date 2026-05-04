@@ -29,6 +29,12 @@ from db.models import (
     TrackingStatus,
 )
 from scoring.fit_tier import classify_fit_tier
+from scoring.land_score import (
+    compute_land_score,
+    load_role_families,
+    load_source_quality,
+    load_title_blocklist,
+)
 from scoring.resume_parser import TAXONOMY_PATH, load_taxonomy
 from scoring.text_utils import (
     clean_html,
@@ -306,21 +312,27 @@ def get_today_queue(
             .limit(sql_limit)
         ).all()
 
-        # Pre-load profile criteria once, outside the row loop, so
-        # top_strong / top_missing computation per item is O(1)-ish.
-        # Strong = JD term is also in the user's resume-derived criteria;
-        # the resume-tailor view's "≥2 occurrences in raw resume text"
-        # refinement is only useful for the buried-vs-strong split there
-        # — in a one-line compact chip there's no room to distinguish
-        # the two, and falling back to criteria membership also handles
-        # profiles whose ``resume_raw_text`` was never populated
-        # (criteria-only profiles).
+        # Pre-load profile criteria once. Both top_strong/top_missing
+        # (chip filter) and the land_score skill-density bonus consume
+        # this set, so a single round-trip serves both. Phase 4.6b adds
+        # weight_tier to each row.
+        criteria_rows = session.execute(
+            select(Criterion).where(Criterion.profile_id == profile.id)
+        ).scalars().all()
         profile_criteria_terms: set[str] = {
-            (c.term or "").lower()
-            for c in session.execute(
-                select(Criterion).where(Criterion.profile_id == profile.id)
-            ).scalars()
+            (c.term or "").lower() for c in criteria_rows
         }
+        profile_criteria_for_land: list[dict[str, Any]] = [
+            {"term": c.term, "weight_tier": int(getattr(c, "weight_tier", 2) or 2)}
+            for c in criteria_rows
+        ]
+
+        # Phase 4.6b: pre-load land_score config once. YAML reads happen
+        # outside the row loop so a 200-row queue is one filesystem hit
+        # for the configs, not 200.
+        role_families_cfg = load_role_families()
+        source_quality_cfg = load_source_quality()
+        title_blocklist_cfg = load_title_blocklist()
 
         result: list[dict[str, Any]] = []
         for score, item, source, tracking, kw_extract in rows:
@@ -408,6 +420,25 @@ def get_today_queue(
                 md.get("company"),
             )[:3]
 
+            # Phase 4.6b: layer land_score on top of match_score. The
+            # blocklist filter is enforced here — items whose title
+            # matches a blocked pattern get dropped from the queue.
+            land_score, land_breakdown = compute_land_score(
+                {
+                    "title": item.title,
+                    "body": item.body,
+                    "source_name": source.name,
+                    "metadata_json": md,
+                },
+                profile_criteria_for_land,
+                role_families_cfg,
+                source_quality_cfg,
+                title_blocklist_cfg,
+                match_score=score_value,
+            )
+            if land_breakdown.get("eligibility_mult") == 0.0:
+                continue
+
             result.append(
                 {
                     "item_id": item.id,
@@ -438,15 +469,21 @@ def get_today_queue(
                     "geo_boost_applied": geo_boost,
                     "display_score": display_score,
                     "fit_tier": fit_tier,
+                    "land_score": land_score,
+                    "land_score_breakdown": land_breakdown,
+                    "industry": md.get("industry"),  # placeholder for 4.6c
                     "similar_count": 0,
                     "similar_item_ids": [],
                 }
             )
 
         if not collapse_duplicates:
+            # Phase 4.6b: sort by land_score (the pivot-aware re-rank).
+            # display_score (raw + geo boost) is preserved on each row
+            # for transparency but no longer drives queue order.
             result.sort(
                 key=lambda x: (
-                    -(x.get("display_score") or 0),
+                    -(x.get("land_score") or 0),
                     -(x["posted_at"].timestamp() if x["posted_at"] else 0),
                 )
             )
@@ -468,13 +505,14 @@ def get_today_queue(
             else:
                 grouped[key] = entry
 
-        # Sort by display_score (= raw score + geo boost) so local items
-        # bubble up. SQL pre-ordered by raw score; we re-sort here on the
-        # boosted value and trim to the caller's requested limit.
+        # Phase 4.6b: sort by land_score so the pivot-aware re-rank
+        # (source quality × title family × experience × salary × skill
+        # density) drives the queue order. SQL pre-ordered by raw
+        # match_score; this sort applies all the post-hoc multipliers.
         deduped = list(grouped.values())
         deduped.sort(
             key=lambda x: (
-                -(x.get("display_score") or 0),
+                -(x.get("land_score") or 0),
                 -(x["posted_at"].timestamp() if x["posted_at"] else 0),
             )
         )

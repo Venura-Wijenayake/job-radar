@@ -266,9 +266,84 @@ def test_get_today_queue_foreign_filter_uses_profile_metadata_default(basic_setu
     assert {r["item_id"] for r in result} == {a}
 
 
-def test_geo_boost_local_outranks_higher_score_domestic(basic_setup):
-    """Local item raw 60 + boost 20 = 80 should outrank domestic item
-    raw 70 + boost 0 = 70."""
+def test_get_today_queue_sorts_by_land_score_not_match_score(basic_setup):
+    """Phase 4.6b: the Ashby Operations Analyst at lower match_score
+    should outrank the Adzuna Data Analyst at higher match_score
+    because Ashby × ops_quant_analyst (1.15 × 0.85) ≈ 0.978 beats
+    Adzuna × data_analyst_exact (0.90 × 1.0) = 0.90."""
+    pid = basic_setup["profile_id"]
+    with get_session() as session:
+        ashby = Source(name="Ashby", type="api", url="http://a", enabled=True)
+        adzuna = Source(name="Adzuna", type="api", url="http://b", enabled=True)
+        session.add_all([ashby, adzuna])
+        session.flush()
+        ashby_id, adzuna_id = ashby.id, adzuna.id
+        session.commit()
+
+    a = _add_item(ashby_id, "a", "Operations Analyst", company="OpenAI")
+    b = _add_item(adzuna_id, "b", "Data Analyst", company="Acme Staffing")
+    _add_score(a, pid, 75)
+    _add_score(b, pid, 80)
+
+    result = get_today_queue("p1")
+    item_ids = [r["item_id"] for r in result]
+    # Ashby Operations Analyst comes out ahead despite lower raw score
+    assert item_ids.index(a) < item_ids.index(b)
+
+
+def test_get_today_queue_filters_blocked_titles(basic_setup):
+    """An item whose title hits the title_blocklist (e.g. account
+    executive) is dropped from the queue regardless of score."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Senior Account Executive", company="Acme")
+    b = _add_item(sid, "b", "Data Analyst", company="Beta")
+    _add_score(a, pid, 95)  # would dominate without the blocklist
+    _add_score(b, pid, 60)
+
+    result = get_today_queue("p1")
+    ids = {r["item_id"] for r in result}
+    assert a not in ids
+    assert b in ids
+
+
+def test_get_today_queue_includes_land_score_breakdown_in_dict(basic_setup):
+    """Each row carries a land_score_breakdown describing every
+    multiplier — the dashboard's "Why this score?" panel reads from it."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    iid = _add_item(sid, "x", "Junior Data Analyst", company="Acme")
+    _add_score(iid, pid, 70)
+
+    result = get_today_queue("p1")
+    assert len(result) == 1
+    row = result[0]
+    assert "land_score" in row
+    assert "land_score_breakdown" in row
+    breakdown = row["land_score_breakdown"]
+    for key in (
+        "match_score", "skill_density_bonus", "source_quality_mult",
+        "title_family_mult", "experience_match_mult",
+        "salary_mult", "eligibility_mult", "land_score",
+    ):
+        assert key in breakdown
+
+
+def test_get_today_queue_industry_placeholder_field(basic_setup):
+    """Phase 4.6b reserves an ``industry`` field on each row for the
+    Phase 4.6c LLM classifier. For now it should default to None when
+    the item's metadata doesn't carry one."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    iid = _add_item(sid, "x", "Data Analyst", company="Acme")
+    _add_score(iid, pid, 70)
+
+    result = get_today_queue("p1")
+    assert "industry" in result[0]
+    assert result[0]["industry"] is None
+
+
+def test_geo_boost_attached_to_result_dict(basic_setup):
+    """Phase 4.6b: queue is now sorted by land_score, but geo_boost is
+    still computed and attached to each row's display_score for the
+    dashboard's per-row metadata. The boost no longer drives ordering."""
     sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
     with get_session() as session:
         profile = session.execute(
@@ -287,11 +362,10 @@ def test_geo_boost_local_outranks_higher_score_domestic(basic_setup):
     _add_score(b, pid, 70)
 
     result = get_today_queue("p1")
-    item_ids = [r["item_id"] for r in result]
-    assert item_ids[0] == a, f"expected local first; got {item_ids}"
-    assert item_ids[1] == b
-    # display_score reflects the boost
     by_id = {r["item_id"]: r for r in result}
+    # Both items present
+    assert a in by_id and b in by_id
+    # Boost still computed and attached
     assert by_id[a]["display_score"] == 80
     assert by_id[a]["geo_boost_applied"] == 20
     assert by_id[b]["display_score"] == 70

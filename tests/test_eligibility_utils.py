@@ -57,6 +57,62 @@ def test_citizenship_required_irrelevant_text_is_false():
     )
 
 
+# ----- citizenship: inclusive override (Phase 4.6b) -----
+
+
+def test_inclusive_override_us_citizen_or_permanent_resident():
+    """Phase 4.6b regression case: 'Must be US citizen or permanent
+    resident' welcomes PRs and should not flag the role as
+    citizenship-required."""
+    text = "Applicants must be US citizen or permanent resident."
+    assert detect_citizenship_required(text) is False
+
+
+def test_inclusive_override_authorized_to_work_in_us():
+    text = (
+        "You must be authorized to work in the US without sponsorship."
+    )
+    assert detect_citizenship_required(text) is False
+
+
+def test_inclusive_override_no_visa_sponsorship_passes():
+    """'No visa sponsorship' is treated as inclusive — GC holders
+    don't need sponsorship."""
+    text = (
+        "Note: this role offers no visa sponsorship. PRs and citizens "
+        "encouraged to apply."
+    )
+    assert detect_citizenship_required(text) is False
+
+
+def test_restrictive_still_flagged_when_no_inclusive_present():
+    """Regression: 'we cannot sponsor employment visas' alone (no
+    inclusive language) still flags."""
+    text = "Note: we cannot sponsor employment-based visas at this time."
+    assert detect_citizenship_required(text) is True
+
+
+def test_inclusive_override_does_not_unblock_clearance_required():
+    """A clearance-required role can never be inclusive — TS/SCI
+    holders are a small cleared population, not 'GC + citizen'."""
+    text = (
+        "Active TS/SCI clearance required. Open to US citizens or "
+        "permanent residents who already hold clearance."
+    )
+    assert detect_citizenship_required(text) is True
+
+
+def test_inclusive_phrasing_with_grammar_variations():
+    text_a = (
+        "We hire US citizens and lawful permanent residents only."
+    )
+    text_b = "Applicants must be authorized to work in the U.S."
+    text_c = "U.S. citizen or permanent resident required."
+    assert detect_citizenship_required(text_a) is False
+    assert detect_citizenship_required(text_b) is False
+    assert detect_citizenship_required(text_c) is False
+
+
 # ----- license -----
 
 
