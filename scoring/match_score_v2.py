@@ -68,6 +68,13 @@ MATCH_TITLE_FAMILY_WEIGHTS: dict[str, float] = {
     "data_analyst_exact": 1.00,
     "data_analyst_adjacent": 0.95,
     "operations_quant_research_analyst": 0.85,
+    # Phase 4.7.1: AI-lab / specialist families. Targeted at the
+    # title shapes that Ashby AI labs (OpenAI, Anthropic, Mistral,
+    # Perplexity, Cohere) use for roles whose JDs match the user's
+    # skill set without containing literal "data analyst".
+    "ai_lab_technical_staff": 0.85,
+    "operations_specialist": 0.80,
+    "legal_tech_compliance": 0.75,
     "junior_dev": 0.70,
     "qa_tester": 0.70,
     "it_support_pivot": 0.60,

@@ -99,6 +99,39 @@ families:
       - "deskside support"
     multiplier: 0.90
 
+  # AI-lab / specialist families (Phase 4.7.1) — added to lift
+  # Ashby AI-lab postings whose titles don't match the data-analyst
+  # taxonomy but where the user's skills genuinely overlap the JD.
+  - name: ai_lab_technical_staff
+    patterns:
+      - "member of technical staff"
+      - "research engineer"
+      - "applied research"
+      - "research scientist"
+      - "applied scientist"
+    # land_score multiplier (0.85-1.0 narrow range). Match-score weight
+    # is set separately in MATCH_TITLE_FAMILY_WEIGHTS at 0.85.
+    multiplier: 0.92
+
+  - name: operations_specialist
+    patterns:
+      - "operations associate"
+      - "operations specialist"
+      - "operations manager"
+      - "ops engineer"
+      - "ops associate"
+      - "product operations"
+    multiplier: 0.90
+
+  - name: legal_tech_compliance
+    patterns:
+      - "legal tech"
+      - "legal operations"
+      - "legal ops"
+      - "compliance analyst"
+      - "policy analyst"
+    multiplier: 0.90
+
   # C-tier: CS-adjacent but lower fit
   - name: cs_adjacent_misc
     patterns:

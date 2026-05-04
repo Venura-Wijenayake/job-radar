@@ -41,6 +41,40 @@ def _families():
                 "multiplier": 0.95,
             },
             {
+                "name": "ai_lab_technical_staff",
+                "patterns": [
+                    "member of technical staff",
+                    "research engineer",
+                    "applied research",
+                    "research scientist",
+                    "applied scientist",
+                ],
+                "multiplier": 0.90,
+            },
+            {
+                "name": "operations_specialist",
+                "patterns": [
+                    "operations associate",
+                    "operations specialist",
+                    "operations manager",
+                    "ops engineer",
+                    "ops associate",
+                    "product operations",
+                ],
+                "multiplier": 0.90,
+            },
+            {
+                "name": "legal_tech_compliance",
+                "patterns": [
+                    "legal tech",
+                    "legal operations",
+                    "legal ops",
+                    "compliance analyst",
+                    "policy analyst",
+                ],
+                "multiplier": 0.90,
+            },
+            {
                 "name": "junior_dev",
                 "patterns": ["junior software engineer"],
                 "multiplier": 0.95,
@@ -198,6 +232,83 @@ def test_title_family_score_default_for_no_match():
     score, name = title_family_score("Hospitality Coordinator", _families())
     assert score == MATCH_TITLE_FAMILY_WEIGHTS["default"]
     assert name == "default"
+
+
+# ----- Phase 4.7.1 — AI-lab / specialist families -----
+
+
+def test_title_family_member_of_technical_staff_matches():
+    """The OpenAI / Anthropic flagship title shape must hit
+    ai_lab_technical_staff (match-level weight 0.85)."""
+    _, name = title_family_score(
+        "Member of Technical Staff", _families()
+    )
+    assert name == "ai_lab_technical_staff"
+    assert MATCH_TITLE_FAMILY_WEIGHTS["ai_lab_technical_staff"] == 0.85
+
+
+def test_title_family_research_engineer_matches():
+    _, name = title_family_score("Research Engineer", _families())
+    assert name == "ai_lab_technical_staff"
+
+
+def test_title_family_applied_scientist_matches():
+    _, name = title_family_score(
+        "Applied Scientist, Reasoning", _families()
+    )
+    assert name == "ai_lab_technical_staff"
+
+
+def test_title_family_operations_associate_matches():
+    _, name = title_family_score(
+        "Operations Associate, Trust & Safety", _families()
+    )
+    assert name == "operations_specialist"
+    assert MATCH_TITLE_FAMILY_WEIGHTS["operations_specialist"] == 0.80
+
+
+def test_title_family_product_operations_matches():
+    _, name = title_family_score(
+        "Product Operations Manager", _families()
+    )
+    # Both "operations manager" and "product operations" are in this
+    # family — first match wins, both yield operations_specialist.
+    assert name == "operations_specialist"
+
+
+def test_title_family_legal_tech_matches():
+    """A title with only the legal-tech signal (no 'ops associate')
+    lands in legal_tech_compliance. Real-world titles that mix legal +
+    ops will hit operations_specialist first because it's earlier in
+    the YAML — see the 'Legal Tech & Ops Associate' acceptance below."""
+    _, name = title_family_score(
+        "Legal Tech Counsel, Privacy", _families()
+    )
+    assert name == "legal_tech_compliance"
+    assert MATCH_TITLE_FAMILY_WEIGHTS["legal_tech_compliance"] == 0.75
+
+
+def test_title_family_legal_ops_associate_falls_into_ops_first():
+    """Documents the YAML-order precedence: 'Legal Tech & Ops Associate'
+    has both signals; operations_specialist's 'ops associate' pattern
+    matches first because that family is listed earlier. Both families
+    are reasonable buckets for AI-lab roles — operations_specialist's
+    0.80 weight is close to legal_tech_compliance's 0.75 so the
+    practical scoring difference is small."""
+    _, name = title_family_score(
+        "Legal Tech & Ops Associate (IP & Licensing)", _families()
+    )
+    assert name == "operations_specialist"
+
+
+def test_title_family_data_analyst_still_wins_over_new_families():
+    """Regression: 'Senior Data Analyst, Operations' should still match
+    data_analyst_exact (which is listed earlier in the family list),
+    not operations_specialist via a substring."""
+    _, name = title_family_score(
+        "Senior Data Analyst, Operations", _families()
+    )
+    assert name == "data_analyst_exact"
 
 
 # ----- body_keyword_score -----
