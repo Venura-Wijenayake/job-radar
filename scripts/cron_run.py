@@ -17,7 +17,9 @@ from db.database import init_db
 from db.seed import seed_sources
 from scoring.batch import extract_all_keywords, score_all_items
 from scrapers.adzuna import AdzunaScraper
+from scrapers.greenhouse import GreenhouseScraper
 from scrapers.hackernews_whoishiring import HackerNewsWhoIsHiringScraper
+from scrapers.lever import LeverScraper
 from scrapers.remoteok import RemoteOKScraper
 from scrapers.remotive import RemotiveScraper
 from scrapers.weworkremotely import WeWorkRemotelyScraper
@@ -30,6 +32,8 @@ SCRAPERS = [
     WeWorkRemotelyScraper,
     HackerNewsWhoIsHiringScraper,
     AdzunaScraper,
+    GreenhouseScraper,
+    LeverScraper,
 ]
 
 SUMMARY_FILENAME = "cron_summary.txt"
