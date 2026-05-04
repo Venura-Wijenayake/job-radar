@@ -6,6 +6,7 @@ suite tests these helpers directly.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -38,6 +39,62 @@ from scoring.text_utils import (
 
 # Statuses hidden from the daily queue by default.
 HIDDEN_FROM_QUEUE: list[str] = ["hidden", "skipped", "rejected", "ghosted"]
+
+# Generic job-posting filler words that pollute the JD-keyword extracts.
+# Used to filter ``top_strong`` / ``top_missing`` so chips display real
+# skills rather than meta-noise. Kept lowercase; matches happen against
+# the lowercased term.
+STOPWORD_KEYWORDS: frozenset[str] = frozenset({
+    # Generic JD nouns
+    "data", "analyst", "analytics", "analysis", "job", "role", "position",
+    "description", "responsibilities", "experience", "skills", "skill",
+    "ability", "abilities", "requirements", "qualifications",
+    "support", "company", "business", "team", "location", "place",
+    "time", "remote", "work", "worker", "candidate", "opportunity",
+    "industry", "type", "duration", "contract", "department",
+    # Boilerplate verbs / functions
+    "responsible", "report", "reports", "reporting", "perform",
+    # Vague positives
+    "great", "strong", "excellent", "ideal", "passionate",
+    # Two-letter state abbreviations that bleed in from location strings
+    "tx", "ca", "ny", "il", "wa", "fl", "pa", "az", "mi", "co",
+    "ga", "nc", "va", "ma", "or", "nv", "oh", "in", "tn",
+    # Currency / pay noise
+    "salary", "pay", "hour", "hourly", "year", "years", "annual",
+})
+
+
+def _filter_keyword_chips(
+    terms: list[str],
+    title: str | None,
+    company: str | None = None,
+) -> list[str]:
+    """Drop stopwords and any terms that appear as a word in
+    ``title`` or ``company``.
+
+    Applied before truncating to the chip cap (3) so the surviving
+    list still has 3 meaningful entries even after noise removal.
+    Compared case-insensitively at full word equality — substrings
+    ("data" inside "metadata") don't match. ``company`` is filtered
+    in addition to ``title`` because the spec example "Data Analyst
+    II at Brex" treated the employer as part of the row identity:
+    surfacing "brex" in a Brex listing's missing chips is noise.
+    """
+    if not terms:
+        return terms
+    blocked_words: set[str] = set(re.findall(r"[a-z0-9]+", (title or "").lower()))
+    blocked_words.update(re.findall(r"[a-z0-9]+", (company or "").lower()))
+    filtered: list[str] = []
+    for t in terms:
+        t_lower = (t or "").lower().strip()
+        if not t_lower:
+            continue
+        if t_lower in STOPWORD_KEYWORDS:
+            continue
+        if t_lower in blocked_words:
+            continue
+        filtered.append(t)
+    return filtered
 
 # Pipeline column order (left-to-right in the UI).
 PIPELINE_STATUSES: list[str] = [
@@ -309,8 +366,19 @@ def get_today_queue(
                     missing_with_rank.append((rank, term))
             strong_with_rank.sort(key=lambda x: x[0], reverse=True)
             missing_with_rank.sort(key=lambda x: x[0], reverse=True)
-            top_strong = [t for _, t in strong_with_rank[:3]]
-            top_missing = [t for _, t in missing_with_rank[:3]]
+            # Filter generic noise + title-word repeats BEFORE the cap so
+            # the surviving chips still carry 3 meaningful skills, not
+            # 1 skill + 2 stopwords.
+            top_strong = _filter_keyword_chips(
+                [t for _, t in strong_with_rank],
+                item.title,
+                md.get("company"),
+            )[:3]
+            top_missing = _filter_keyword_chips(
+                [t for _, t in missing_with_rank],
+                item.title,
+                md.get("company"),
+            )[:3]
 
             result.append(
                 {

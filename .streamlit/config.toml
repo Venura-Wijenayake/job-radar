@@ -1,0 +1,14 @@
+# Streamlit dashboard theme. Custom dark palette matching the
+# Job Radar brand — softer reds/greens than Streamlit's default
+# dark theme so the queue chips don't fight the page for attention.
+#
+# secrets.toml in this directory is gitignored (see .gitignore).
+# This file is safe to commit; it has no credentials.
+
+[theme]
+base = "dark"
+primaryColor = "#4a9eff"
+backgroundColor = "#0e1014"
+secondaryBackgroundColor = "#1a1d23"
+textColor = "#e8eaed"
+font = "sans serif"

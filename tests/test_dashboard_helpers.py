@@ -588,6 +588,87 @@ def test_get_today_queue_fit_tier_filter_uses_profile_metadata(basic_setup):
     assert {r["item_id"] for r in result} == {a}
 
 
+def test_top_strong_filters_stopwords(basic_setup):
+    """JD-keyword extracts often surface generic noise like 'data',
+    'analyst', 'job'. The compact chip list must drop these so the
+    surviving 3 are real skills."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    _add_criterion(pid, "python", kind="skill")
+    _add_criterion(pid, "data", kind="skill")
+    _add_criterion(pid, "analyst", kind="skill")
+
+    iid = _add_item(sid, "x", "Engineer", company="Acme")
+    _add_score(iid, pid, 70)
+    _add_keyword_extract(
+        iid,
+        [
+            {"term": "python", "frequency": 5, "importance": 2.0},
+            {"term": "data", "frequency": 10, "importance": 2.0},
+            {"term": "analyst", "frequency": 8, "importance": 2.0},
+        ],
+    )
+
+    result = get_today_queue("p1")
+    assert result[0]["top_strong"] == ["python"]
+
+
+def test_top_missing_filters_title_words(basic_setup):
+    """Missing chips for an item titled 'Data Analyst II' at Brex
+    must NOT include 'data', 'analyst' (title), or 'brex' (company)."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    iid = _add_item(sid, "x", "Data Analyst II", company="Brex")
+    _add_score(iid, pid, 70)
+    _add_keyword_extract(
+        iid,
+        [
+            {"term": "tableau", "frequency": 5, "importance": 2.0},
+            {"term": "brex", "frequency": 8, "importance": 2.0},
+            {"term": "data", "frequency": 10, "importance": 2.0},
+            {"term": "analyst", "frequency": 9, "importance": 2.0},
+            {"term": "snowflake", "frequency": 4, "importance": 2.0},
+        ],
+    )
+
+    result = get_today_queue("p1")
+    missing = result[0]["top_missing"]
+    assert "data" not in missing
+    assert "analyst" not in missing
+    assert "brex" not in missing
+    # The two real skills both survive
+    assert "tableau" in missing
+    assert "snowflake" in missing
+
+
+def test_top_strong_still_returns_3_after_filter(basic_setup):
+    """With 6 candidates of which 2 are stopwords, the top 3 of the
+    surviving 4 must still be returned (filter runs BEFORE the cap)."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    for term in ("python", "sql", "tableau", "snowflake"):
+        _add_criterion(pid, term, kind="skill")
+    _add_criterion(pid, "data", kind="skill")    # stopword
+    _add_criterion(pid, "analyst", kind="skill")  # stopword
+
+    iid = _add_item(sid, "x", "Engineer", company="Acme")
+    _add_score(iid, pid, 70)
+    _add_keyword_extract(
+        iid,
+        [
+            {"term": "data", "frequency": 20, "importance": 2.0},      # stopword, would rank #1
+            {"term": "analyst", "frequency": 18, "importance": 2.0},   # stopword, would rank #2
+            {"term": "python", "frequency": 10, "importance": 2.0},
+            {"term": "sql", "frequency": 8, "importance": 2.0},
+            {"term": "tableau", "frequency": 6, "importance": 2.0},
+            {"term": "snowflake", "frequency": 4, "importance": 2.0},
+        ],
+    )
+
+    result = get_today_queue("p1")
+    strong = result[0]["top_strong"]
+    assert len(strong) == 3
+    # The 3 real skills with highest rank survive
+    assert strong == ["python", "sql", "tableau"]
+
+
 def test_get_today_queue_includes_top_strong_and_top_missing(basic_setup):
     """top_strong = JD keywords that are in resume criteria, ranked by
     JD freq × importance. top_missing = JD keywords NOT in criteria,

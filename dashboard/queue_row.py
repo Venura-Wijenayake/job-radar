@@ -1,11 +1,11 @@
 """Compact row component for Today's Queue.
 
-Renders one queue item as a single bordered container with:
-  Row 1 — score badge, fit-tier badge, geo-tier badge, title, company,
-          location, posted-age, source.
-  Row 2 — pros chips (top 3 strong) + cons chips (top 3 missing).
-  Row 3 — action buttons (Interested / Applied / Skip / Hide) and an
-          expander revealing the full body excerpt + matched terms.
+Renders one queue item as a single bordered container occupying ~4 lines:
+
+  [SCORE] Title — company • location 📍tier  🎯 fit-tier
+  ✅ python  ✅ sql  ✅ analytics    ❌ tableau  ❌ snowflake  ❌ dbt
+  posted 2d ago • Greenhouse                       Status: 💡 Interested
+  [Interested] [Applied] [Skip] [Hide]            ▸ Details
 
 All Streamlit-native primitives — no custom HTML/JS.
 
@@ -52,13 +52,12 @@ PIPELINE_LABELS: dict[str, str] = {
 
 
 def _score_badge(score: float) -> str:
-    if score >= 75:
+    """Color-coded score badge, banded as: >=80 green, 50-79 amber, <50 muted."""
+    if score >= 80:
         return f":green-background[**{score:.0f}**]"
     if score >= 50:
         return f":orange-background[**{score:.0f}**]"
-    if score >= 25:
-        return f":gray-background[**{score:.0f}**]"
-    return f":red-background[**{score:.0f}**]"
+    return f":gray-background[**{score:.0f}**]"
 
 
 def _days_ago(dt: Optional[datetime]) -> str:
@@ -83,32 +82,28 @@ def render_queue_row(
     profile_id: Optional[int],
     on_status_change: Callable[[int, Optional[int], str], None],
 ) -> None:
-    """Render a single queue row. ``on_status_change`` runs on button click."""
+    """Render a single queue row. ~4 lines tall by design."""
     with st.container(border=True):
-        col_meta, col_main, col_actions = st.columns([1, 6, 2])
-
-        with col_meta:
+        # Row 1 — score on the left, title + meta + tier badges on the right.
+        col_score, col_title = st.columns([1, 8])
+        with col_score:
             display_score = item.get("display_score") or item.get("score") or 0
             st.markdown(_score_badge(display_score))
-            tier = item.get("fit_tier") or "stretch"
-            st.markdown(FIT_TIER_BADGES.get(tier, tier))
-            geo_badge = GEO_TIER_BADGES.get(item.get("geo_tier") or "unknown", "")
-            if geo_badge:
-                st.markdown(geo_badge)
-
-        with col_main:
-            similar = item.get("similar_count", 0) or 0
+        with col_title:
             badges = ""
+            similar = item.get("similar_count", 0) or 0
             if similar > 0:
                 badges += f" :gray-background[+{similar} similar]"
             if item.get("ghost_warning"):
                 badges += " :orange-background[⚠️ might be ghost]"
+            geo_badge = GEO_TIER_BADGES.get(item.get("geo_tier") or "unknown", "")
+            fit_badge = FIT_TIER_BADGES.get(item.get("fit_tier") or "stretch", "")
+            tier_badges = " ".join(b for b in (geo_badge, fit_badge) if b)
+
             title = item.get("title") or ""
             url = item.get("url")
-            if url:
-                st.markdown(f"**[{title}]({url})**{badges}")
-            else:
-                st.markdown(f"**{title}**{badges}")
+            link = f"[{title}]({url})" if url else title
+            st.markdown(f"**{link}**{badges} &nbsp; {tier_badges}")
 
             meta_parts = [
                 p
@@ -120,33 +115,43 @@ def render_queue_row(
                 ]
                 if p
             ]
-            st.caption(" • ".join(meta_parts))
-
-            chips: list[str] = []
-            for term in (item.get("top_strong") or [])[:3]:
-                chips.append(f":green-background[✅ {_truncate(term, 18)}]")
-            for term in (item.get("top_missing") or [])[:3]:
-                chips.append(f":red-background[❌ {_truncate(term, 18)}]")
-            if chips:
-                st.markdown(" ".join(chips))
-
             current_status = item.get("current_status")
+            status_suffix = ""
             if current_status:
                 label = PIPELINE_LABELS.get(current_status, current_status)
-                st.caption(f"Status: {label}")
+                status_suffix = f" • status: {label}"
+            st.caption(" • ".join(meta_parts) + status_suffix)
 
-        with col_actions:
-            base = f"q-{item['item_id']}"
+        # Row 2 — pros + cons chips on a single line. The two short
+        # column layout keeps them aligned visually rather than the
+        # markdown wrapping the full chip line.
+        chips: list[str] = []
+        for term in (item.get("top_strong") or [])[:3]:
+            chips.append(f":green-background[✅ {_truncate(term, 18)}]")
+        for term in (item.get("top_missing") or [])[:3]:
+            chips.append(f":red-background[❌ {_truncate(term, 18)}]")
+        if chips:
+            st.markdown(" &nbsp; ".join(chips))
+
+        # Row 3 — four equal-width action buttons + a click-to-expand
+        # details panel on the same row. use_container_width keeps
+        # the buttons compact without truncating the labels.
+        btn_int, btn_app, btn_skip, btn_hide = st.columns(4)
+        base = f"q-{item['item_id']}"
+        with btn_int:
             if st.button("Interested", key=f"{base}-int", use_container_width=True):
                 on_status_change(item["item_id"], profile_id, "interested")
+        with btn_app:
             if st.button("Applied", key=f"{base}-app", use_container_width=True):
                 on_status_change(item["item_id"], profile_id, "applied")
+        with btn_skip:
             if st.button("Skip", key=f"{base}-skip", use_container_width=True):
                 on_status_change(item["item_id"], profile_id, "skipped")
+        with btn_hide:
             if st.button("Hide", key=f"{base}-hide", use_container_width=True):
                 on_status_change(item["item_id"], profile_id, "hidden")
 
-        with st.expander("Details"):
+        with st.expander("Details", expanded=False):
             top_terms = item.get("top_matched_terms") or []
             if top_terms:
                 st.markdown(
