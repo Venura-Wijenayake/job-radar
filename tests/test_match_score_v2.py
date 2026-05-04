@@ -311,6 +311,16 @@ def test_title_family_data_analyst_still_wins_over_new_families():
     assert name == "data_analyst_exact"
 
 
+def test_workable_source_quality_multiplier_is_1_10():
+    """Phase 4.8a: Workable is a direct ATS, same tier as Greenhouse
+    and Lever — gets a 1.10 source-quality multiplier in
+    config/source_quality.yaml."""
+    from scoring.land_score import load_source_quality
+
+    cfg = load_source_quality()
+    assert cfg["sources"]["Workable"] == 1.10
+
+
 # ----- body_keyword_score -----
 
 

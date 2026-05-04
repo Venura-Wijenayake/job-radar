@@ -24,6 +24,7 @@ from scrapers.lever import LeverScraper
 from scrapers.remoteok import RemoteOKScraper
 from scrapers.remotive import RemotiveScraper
 from scrapers.weworkremotely import WeWorkRemotelyScraper
+from scrapers.workable import WorkableScraper
 
 PROFILE_NAME = "venura_data_analyst"
 
@@ -36,6 +37,7 @@ SCRAPERS = [
     GreenhouseScraper,
     LeverScraper,
     AshbyScraper,
+    WorkableScraper,
 ]
 
 SUMMARY_FILENAME = "cron_summary.txt"

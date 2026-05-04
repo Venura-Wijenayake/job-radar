@@ -2,6 +2,7 @@
 # Greenhouse: https://boards-api.greenhouse.io/v1/boards/{slug}/jobs
 # Lever:      https://api.lever.co/v0/postings/{slug}?mode=json
 # Ashby:      https://api.ashbyhq.com/posting-api/job-board/{slug}
+# Workable:   https://apply.workable.com/api/v1/widget/accounts/{slug}
 #
 # If a slug is missing or has been retired, the scraper logs and moves on.
 # Add new slugs by appending to any list and re-running the scraper.
@@ -87,3 +88,38 @@ ashby:
   - daloopa
   - finegrain
   - articul8
+
+workable:
+  # Mid-stage tech companies known to use Workable for hiring.
+  # Mix of analytics, dev tools, B2B SaaS, fintech, and consumer tech
+  # — chosen for junior/mid roles relevant to a data analyst pivot.
+  - sumup
+  - persona
+  - circleci
+  - airbase
+  - paddle
+  - hopin
+  - airtm
+  - chainlink
+  - matterport
+  - freshworks
+  - getlatka
+  - pleo
+  - frontify
+  - personio
+  - typeform
+  - holded
+  - factorial
+  - taskrabbit
+  - workmotion
+  - papercup
+  - heyjobs
+  - jobandtalent
+  - cabify
+  - moss
+  - billie
+  - flink
+  - mambu
+  - 360learning
+  - aiven
+  - upvest

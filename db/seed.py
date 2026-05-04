@@ -54,6 +54,12 @@ DEFAULT_SOURCES = [
         "url": "https://api.ashbyhq.com/posting-api/job-board",
         "enabled": True,
     },
+    {
+        "name": "Workable",
+        "type": "api",
+        "url": "https://apply.workable.com/api/v1/widget/accounts",
+        "enabled": True,
+    },
 ]
 
 

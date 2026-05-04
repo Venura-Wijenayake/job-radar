@@ -83,3 +83,26 @@ def test_no_duplicate_ashby_slugs():
     data = _load()
     slugs = data.get("ashby") or []
     assert len(slugs) == len(set(slugs))
+
+
+def test_workable_section_exists_and_has_at_least_25_slugs():
+    data = _load()
+    assert "workable" in data
+    slugs = data.get("workable") or []
+    assert len(slugs) >= 25
+
+
+def test_workable_slugs_are_lowercase_strings():
+    data = _load()
+    slugs = data.get("workable") or []
+    for slug in slugs:
+        assert isinstance(slug, str)
+        assert slug == slug.lower(), f"slug not lowercase: {slug!r}"
+        assert slug.strip() == slug
+        assert len(slug) > 0
+
+
+def test_no_duplicate_workable_slugs():
+    data = _load()
+    slugs = data.get("workable") or []
+    assert len(slugs) == len(set(slugs))

@@ -18,6 +18,7 @@ from scrapers.lever import LeverScraper
 from scrapers.remoteok import RemoteOKScraper
 from scrapers.remotive import RemotiveScraper
 from scrapers.weworkremotely import WeWorkRemotelyScraper
+from scrapers.workable import WorkableScraper
 
 # Map source_name (matches db Sources rows) to scraper class.
 SCRAPERS = {
@@ -29,6 +30,7 @@ SCRAPERS = {
     "Greenhouse": GreenhouseScraper,
     "Lever": LeverScraper,
     "Ashby": AshbyScraper,
+    "Workable": WorkableScraper,
 }
 
 # Lowercase short aliases for the CLI single-source form.
@@ -45,6 +47,7 @@ ALIASES = {
     "gh": "Greenhouse",
     "lever": "Lever",
     "ashby": "Ashby",
+    "workable": "Workable",
 }
 
 

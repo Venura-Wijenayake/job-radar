@@ -52,6 +52,12 @@ SOURCE_BADGES: dict[str, tuple[str, str]] = {
     "Remotive": ("⬜", "gray"),
     "WeWorkRemotely": ("⬛", "rainbow"),
     "HackerNewsWhoIsHiring": ("🟨", "yellow"),
+    # Streamlit's :color-background[] palette is fully exhausted with 8
+    # entries above (blue/green/orange/red/violet/gray/yellow/rainbow).
+    # Workable shares "rainbow" with WeWorkRemotely but uses a
+    # distinct emoji so the badge is still visually identifiable.
+    # Phase 4.8a accepts the color duplication deliberately.
+    "Workable": ("📋", "rainbow"),
 }
 
 
