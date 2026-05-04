@@ -48,6 +48,12 @@ DEFAULT_SOURCES = [
         "url": "https://api.lever.co/v0/postings",
         "enabled": True,
     },
+    {
+        "name": "Ashby",
+        "type": "api",
+        "url": "https://api.ashbyhq.com/posting-api/job-board",
+        "enabled": True,
+    },
 ]
 
 

@@ -40,6 +40,34 @@ from scoring.text_utils import (
 # Statuses hidden from the daily queue by default.
 HIDDEN_FROM_QUEUE: list[str] = ["hidden", "skipped", "rejected", "ghosted"]
 
+
+def paginate(
+    items: list[Any],
+    page_size: int,
+    page: int,
+    show_all: bool = False,
+) -> tuple[list[Any], int, int]:
+    """Slice ``items`` for paginated display.
+
+    Returns ``(visible_items, current_page, total_pages)``. When
+    ``show_all`` is True, returns the full list with ``current_page=0``
+    and ``total_pages=1`` so callers can hide the page navigator.
+
+    The current page is clamped to the valid range so caller-side
+    state (e.g. session_state["queue_page"] left over from a wider
+    filter) can never go out of bounds when the filter narrows.
+    """
+    n = len(items)
+    if show_all or n == 0:
+        return items, 0, 1
+    if page_size <= 0:
+        return items, 0, 1
+    total_pages = (n + page_size - 1) // page_size
+    page = max(0, min(page, total_pages - 1))
+    start = page * page_size
+    end = start + page_size
+    return items[start:end], page, total_pages
+
 # Generic job-posting filler words that pollute the JD-keyword extracts.
 # Used to filter ``top_strong`` / ``top_missing`` so chips display real
 # skills rather than meta-noise. Kept lowercase; matches happen against

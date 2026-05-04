@@ -38,6 +38,30 @@ GEO_TIER_BADGES: dict[str, str] = {
     "unknown": "",
 }
 
+# Per-source visual badge. Streamlit's :color-background[] palette is
+# fixed at {blue, green, orange, red, violet, gray, yellow, rainbow}
+# — assignments below are tuned so the most-used sources get the
+# distinct/punchier colors and no two sources collide. Add new
+# sources here when adding scrapers.
+SOURCE_BADGES: dict[str, tuple[str, str]] = {
+    "Adzuna": ("🟦", "blue"),
+    "Greenhouse": ("🟩", "green"),
+    "Lever": ("🟧", "orange"),
+    "Ashby": ("🟪", "violet"),
+    "RemoteOK": ("🟫", "red"),
+    "Remotive": ("⬜", "gray"),
+    "WeWorkRemotely": ("⬛", "rainbow"),
+    "HackerNewsWhoIsHiring": ("🟨", "yellow"),
+}
+
+
+def _source_badge(name: str | None) -> str:
+    if not name:
+        return ""
+    emoji, color = SOURCE_BADGES.get(name, ("📡", "gray"))
+    return f":{color}-background[{emoji} {name}]"
+
+
 PIPELINE_LABELS: dict[str, str] = {
     "interested": "💡 Interested",
     "applied": "📤 Applied",
@@ -98,20 +122,24 @@ def render_queue_row(
                 badges += " :orange-background[⚠️ might be ghost]"
             geo_badge = GEO_TIER_BADGES.get(item.get("geo_tier") or "unknown", "")
             fit_badge = FIT_TIER_BADGES.get(item.get("fit_tier") or "stretch", "")
-            tier_badges = " ".join(b for b in (geo_badge, fit_badge) if b)
+            source_badge = _source_badge(item.get("source_name"))
+            tier_badges = " ".join(
+                b for b in (source_badge, geo_badge, fit_badge) if b
+            )
 
             title = item.get("title") or ""
             url = item.get("url")
             link = f"[{title}]({url})" if url else title
             st.markdown(f"**{link}**{badges} &nbsp; {tier_badges}")
 
+            # Source moves into the badge row; meta caption keeps
+            # company/location/posted-age only.
             meta_parts = [
                 p
                 for p in [
                     item.get("company"),
                     item.get("location"),
                     f"posted {_days_ago(item.get('posted_at'))}",
-                    item.get("source_name"),
                 ]
                 if p
             ]

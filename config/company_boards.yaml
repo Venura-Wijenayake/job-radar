@@ -1,9 +1,10 @@
 # Curated list of company slugs for direct-employer scraping.
 # Greenhouse: https://boards-api.greenhouse.io/v1/boards/{slug}/jobs
-# Lever: https://api.lever.co/v0/postings/{slug}?mode=json
+# Lever:      https://api.lever.co/v0/postings/{slug}?mode=json
+# Ashby:      https://api.ashbyhq.com/posting-api/job-board/{slug}
 #
 # If a slug is missing or has been retired, the scraper logs and moves on.
-# Add new slugs by appending to either list and re-running the scraper.
+# Add new slugs by appending to any list and re-running the scraper.
 
 greenhouse:
   - smartsheet
@@ -46,3 +47,43 @@ greenhouse:
 lever:
   - palantir
   - varomoney
+
+ashby:
+  # AI labs & ML platforms (highest signal for the data-analyst pivot)
+  - anthropic
+  - openai
+  - perplexity
+  - characterai
+  - cohere
+  - mistral
+  - runwayml
+  - replicate
+  - huggingface
+  - weights-and-biases
+  - modal
+  - braintrust
+  - harvey
+  - sierra
+  - hebbia
+  - glean
+  - decagon
+  # Modern dev tooling & infra (Ashby-heavy)
+  - linear
+  - posthog
+  - browserbase
+  - anysphere   # Cursor
+  - vercel
+  - supabase
+  - prisma
+  - replit
+  # Mid-stage startups using Ashby
+  - suno
+  - notion
+  - mercor
+  - clay
+  - rampnetwork
+  - pika
+  - 11x
+  - daloopa
+  - finegrain
+  - articul8

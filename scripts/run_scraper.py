@@ -11,6 +11,7 @@ from sqlalchemy import select
 from db.database import get_session
 from db.models import Source
 from scrapers.adzuna import AdzunaScraper
+from scrapers.ashby import AshbyScraper
 from scrapers.greenhouse import GreenhouseScraper
 from scrapers.hackernews_whoishiring import HackerNewsWhoIsHiringScraper
 from scrapers.lever import LeverScraper
@@ -27,6 +28,7 @@ SCRAPERS = {
     "Adzuna": AdzunaScraper,
     "Greenhouse": GreenhouseScraper,
     "Lever": LeverScraper,
+    "Ashby": AshbyScraper,
 }
 
 # Lowercase short aliases for the CLI single-source form.
@@ -42,6 +44,7 @@ ALIASES = {
     "greenhouse": "Greenhouse",
     "gh": "Greenhouse",
     "lever": "Lever",
+    "ashby": "Ashby",
 }
 
 

@@ -34,6 +34,11 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
+### Optional credentials
+
+- `ADZUNA_APP_ID` / `ADZUNA_APP_KEY` — required for the Adzuna scraper (free signup at https://developer.adzuna.com). If unset, only the public-board scrapers (RemoteOK, Remotive, WeWorkRemotely, HackerNews, Greenhouse, Lever, Ashby) will run.
+- `ANTHROPIC_API_KEY` — *optional, reserved for Phase 4.6b's industry classifier.* Leave unset for the keyword-only fallback path. Set as a GitHub Actions secret of the same name if you want the cron to use the LLM-assisted classification.
+
 ## Running the Dashboard
 
 First-time setup (after Phase 1+2 are in place):

@@ -60,3 +60,26 @@ def test_no_duplicate_lever_slugs():
     data = _load()
     slugs = data.get("lever") or []
     assert len(slugs) == len(set(slugs))
+
+
+def test_ashby_section_exists_and_has_at_least_30_slugs():
+    data = _load()
+    assert "ashby" in data
+    slugs = data.get("ashby") or []
+    assert len(slugs) >= 30
+
+
+def test_ashby_slugs_are_lowercase_strings():
+    data = _load()
+    slugs = data.get("ashby") or []
+    for slug in slugs:
+        assert isinstance(slug, str)
+        assert slug == slug.lower(), f"slug not lowercase: {slug!r}"
+        assert slug.strip() == slug
+        assert len(slug) > 0
+
+
+def test_no_duplicate_ashby_slugs():
+    data = _load()
+    slugs = data.get("ashby") or []
+    assert len(slugs) == len(set(slugs))

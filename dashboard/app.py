@@ -33,6 +33,7 @@ from dashboard.data import (  # noqa: E402
     get_today_queue,
     list_manual_criteria,
     list_taxonomy,
+    paginate,
     remove_manual_criterion,
     set_status,
     update_notes,
@@ -89,14 +90,28 @@ def _days_ago(dt: datetime | None) -> str:
     return f"{delta}d ago"
 
 
+# Per-page item count for the paginated queue. Round number that fits
+# 1080p without scrolling under the compact-row layout.
+PAGE_SIZE = 30
+# Standard ceiling for the paginated queue (covers ~7 pages).
+QUEUE_PAGE_CEILING = 200
+# Hard ceiling for the "show all" mode — far above what any one user
+# would scroll through, but still bounded so a runaway query can't
+# pull the entire scored corpus into memory.
+QUEUE_SHOW_ALL_CEILING = 5000
+
+
 @st.cache_data(ttl=60)
-def _cached_queue(profile_name: str) -> list[dict]:
+def _cached_queue(profile_name: str, show_all: bool = False) -> list[dict]:
     # Fetch the broad set so client-side filter toggles can show/hide
     # applied + skipped without re-querying. Permanently-hidden rows
     # (Hide button, rejected, ghosted) stay out of the cache.
+    # show_all=True bumps the ceiling well above the paginated case so
+    # the user can browse the full ranked corpus.
     return get_today_queue(
         profile_name,
         exclude_statuses=["hidden", "rejected", "ghosted"],
+        limit=QUEUE_SHOW_ALL_CEILING if show_all else QUEUE_PAGE_CEILING,
     )
 
 
@@ -303,9 +318,17 @@ with tab_queue:
             hide_skipped = st.toggle(
                 "Hide already-skipped", value=True, key="queue_hide_skipped"
             )
+        with row3[2]:
+            show_all = st.toggle(
+                "Show all results",
+                value=False,
+                key="queue_show_all",
+                help="Off = paginated 30-per-page (default). On = list "
+                "all matches in one scroll.",
+            )
 
     try:
-        queue = _cached_queue(profile_name)
+        queue = _cached_queue(profile_name, show_all=show_all)
     except Exception as exc:
         st.error(f"Failed to load queue: {exc}")
         queue = []
@@ -378,8 +401,69 @@ with tab_queue:
     elif not filtered:
         st.info("No items match your current filters.")
 
-    for item in filtered:
+    # Reset paginator to page 0 whenever any filter input changes —
+    # otherwise narrowing the filter could leave the user stranded on
+    # an out-of-range page. The filter signature is hashed into a
+    # single key so we don't have to enumerate every input.
+    filter_signature = (
+        min_score,
+        tuple(selected_sources),
+        search,
+        tuple(selected_geo_tiers),
+        tuple(selected_fit_tiers),
+        posted_after_days,
+        hide_applied,
+        hide_skipped,
+        show_all,
+    )
+    if st.session_state.get("queue_filter_sig") != filter_signature:
+        st.session_state["queue_filter_sig"] = filter_signature
+        st.session_state["queue_page"] = 0
+
+    current_page = int(st.session_state.get("queue_page", 0))
+    visible, current_page, total_pages = paginate(
+        filtered, PAGE_SIZE, current_page, show_all=show_all
+    )
+    st.session_state["queue_page"] = current_page
+
+    for item in visible:
         render_queue_row(item, profile_id, _on_queue_status_change)
+
+    # Page navigation. In show_all mode total_pages == 1 and the nav
+    # collapses to a single label so it doesn't waste vertical space.
+    if filtered and not show_all and total_pages > 1:
+        nav_prev, nav_label, nav_next = st.columns([1, 6, 1])
+        with nav_prev:
+            if st.button(
+                "◀ Prev",
+                key="queue_prev",
+                use_container_width=True,
+                disabled=current_page <= 0,
+            ):
+                st.session_state["queue_page"] = max(0, current_page - 1)
+                st.rerun()
+        with nav_label:
+            start = current_page * PAGE_SIZE + 1
+            end = min((current_page + 1) * PAGE_SIZE, len(filtered))
+            st.markdown(
+                f"<div style='text-align:center'>Page {current_page + 1} "
+                f"of {total_pages} &nbsp;·&nbsp; showing {start}–{end} "
+                f"of {len(filtered)}</div>",
+                unsafe_allow_html=True,
+            )
+        with nav_next:
+            if st.button(
+                "Next ▶",
+                key="queue_next",
+                use_container_width=True,
+                disabled=current_page >= total_pages - 1,
+            ):
+                st.session_state["queue_page"] = min(
+                    total_pages - 1, current_page + 1
+                )
+                st.rerun()
+    elif filtered and show_all:
+        st.caption(f"Showing all {len(filtered)} items")
 
 
 # ----- Pipeline -----
