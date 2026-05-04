@@ -27,6 +27,7 @@ from db.models import (
     Tracking,
     TrackingStatus,
 )
+from scoring.fit_tier import classify_fit_tier
 from scoring.resume_parser import TAXONOMY_PATH, load_taxonomy
 from scoring.text_utils import (
     clean_html,
@@ -81,6 +82,7 @@ def get_today_queue(
     collapse_duplicates: bool = True,
     allowed_locations: Optional[list[str]] = None,
     allowed_geo_tiers: Optional[list[str]] = None,
+    allowed_fit_tiers: Optional[list[str]] = None,
     english_only: Optional[bool] = None,
     posted_after_days: Optional[int] = None,
     hide_citizenship_required: Optional[bool] = None,
@@ -112,6 +114,11 @@ def get_today_queue(
         None, falls back to the profile's
         ``metadata_json["allowed_geo_tiers"]`` if present, otherwise
         defaults to ["local", "regional", "domestic", "unknown"].
+      ``allowed_fit_tiers`` — list of fit-tier values to keep
+        (``"high_fit"`` / ``"stretch"`` / ``"long_shot"``). When None,
+        falls back to the profile's
+        ``metadata_json["allowed_fit_tiers"]`` if present, otherwise
+        defaults to all three (no fit-tier filtering applied).
       ``english_only`` — when True, drops items whose
         ``language_detected`` is ``"other"``. ``"en"`` and ``"mixed"`` are
         kept. When None, falls back to the profile's
@@ -149,6 +156,11 @@ def get_today_queue(
             allowed_geo_tiers = profile_meta.get(
                 "allowed_geo_tiers",
                 ["local", "regional", "domestic", "unknown"],
+            )
+        if allowed_fit_tiers is None:
+            allowed_fit_tiers = profile_meta.get(
+                "allowed_fit_tiers",
+                ["high_fit", "stretch", "long_shot"],
             )
         if english_only is None:
             english_only = bool(profile_meta.get("english_only", False))
@@ -189,7 +201,7 @@ def get_today_queue(
         sql_limit = max(limit * 3, 200)
 
         rows = session.execute(
-            select(Score, Item, Source, Tracking)
+            select(Score, Item, Source, Tracking, KeywordExtract)
             .join(Item, Score.item_id == Item.id)
             .join(Source, Item.source_id == Source.id)
             .outerjoin(
@@ -199,6 +211,7 @@ def get_today_queue(
                     Tracking.profile_id == profile.id,
                 ),
             )
+            .outerjoin(KeywordExtract, KeywordExtract.item_id == Item.id)
             .where(Score.profile_id == profile.id)
             .where(Item.id.notin_(excluded_item_ids))
             .where(
@@ -208,8 +221,24 @@ def get_today_queue(
             .limit(sql_limit)
         ).all()
 
+        # Pre-load profile criteria once, outside the row loop, so
+        # top_strong / top_missing computation per item is O(1)-ish.
+        # Strong = JD term is also in the user's resume-derived criteria;
+        # the resume-tailor view's "≥2 occurrences in raw resume text"
+        # refinement is only useful for the buried-vs-strong split there
+        # — in a one-line compact chip there's no room to distinguish
+        # the two, and falling back to criteria membership also handles
+        # profiles whose ``resume_raw_text`` was never populated
+        # (criteria-only profiles).
+        profile_criteria_terms: set[str] = {
+            (c.term or "").lower()
+            for c in session.execute(
+                select(Criterion).where(Criterion.profile_id == profile.id)
+            ).scalars()
+        }
+
         result: list[dict[str, Any]] = []
-        for score, item, source, tracking in rows:
+        for score, item, source, tracking, kw_extract in rows:
             md = item.metadata_json or {}
 
             location_norm = md.get("location_normalized") or "Unknown"
@@ -241,15 +270,53 @@ def get_today_queue(
             score_value = score.score or 0.0
             display_score = score_value + geo_boost
 
+            fit_tier = classify_fit_tier(
+                {
+                    "score": score_value,
+                    "title": item.title or "",
+                    "body": item.body or "",
+                }
+            )
+            if allowed_fit_tiers is not None and fit_tier not in allowed_fit_tiers:
+                continue
+
             top_three = sorted(
                 score.matched_terms_json or [],
                 key=lambda t: t.get("contribution", 0),
                 reverse=True,
             )[:3]
+
+            # JD-keyword-side pros/cons.
+            # Strong = JD term is also in the user's resume-derived
+            #   criteria — keep up to 3 by JD-frequency × importance so
+            #   the most prominent overlapping skills float to the top.
+            # Missing = JD term NOT in user's criteria — same ranking.
+            strong_with_rank: list[tuple[float, str]] = []
+            missing_with_rank: list[tuple[float, str]] = []
+            jd_keywords = (
+                kw_extract.keywords_json if kw_extract is not None else None
+            ) or []
+            for kw in jd_keywords:
+                term = kw.get("term", "") if isinstance(kw, dict) else ""
+                if not term:
+                    continue
+                rank = float(kw.get("frequency", 0) or 0) * float(
+                    kw.get("importance", 1.0) or 1.0
+                )
+                if term.lower() in profile_criteria_terms:
+                    strong_with_rank.append((rank, term))
+                else:
+                    missing_with_rank.append((rank, term))
+            strong_with_rank.sort(key=lambda x: x[0], reverse=True)
+            missing_with_rank.sort(key=lambda x: x[0], reverse=True)
+            top_strong = [t for _, t in strong_with_rank[:3]]
+            top_missing = [t for _, t in missing_with_rank[:3]]
+
             result.append(
                 {
                     "item_id": item.id,
                     "title": item.title,
+                    "body": item.body,
                     "company": md.get("company"),
                     "location": md.get("location"),
                     "location_normalized": location_norm,
@@ -261,6 +328,8 @@ def get_today_queue(
                     "score": score.score,
                     "raw_score": score.raw_score,
                     "top_matched_terms": [t["term"] for t in top_three],
+                    "top_strong": top_strong,
+                    "top_missing": top_missing,
                     "current_status": (
                         tracking.status.value if tracking is not None else None
                     ),
@@ -272,6 +341,7 @@ def get_today_queue(
                     "geo_tier": geo_tier,
                     "geo_boost_applied": geo_boost,
                     "display_score": display_score,
+                    "fit_tier": fit_tier,
                     "similar_count": 0,
                     "similar_item_ids": [],
                 }

@@ -12,7 +12,7 @@ this file.
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Ensure project root is on sys.path when launched via `streamlit run`.
@@ -44,6 +44,7 @@ from dashboard.insights import (  # noqa: E402
     source_breakdown,
     top_hiring_companies,
 )
+from dashboard.queue_row import render_queue_row  # noqa: E402
 
 PIPELINE_LABELS: dict[str, str] = {
     "interested": "💡 Interested",
@@ -90,7 +91,13 @@ def _days_ago(dt: datetime | None) -> str:
 
 @st.cache_data(ttl=60)
 def _cached_queue(profile_name: str) -> list[dict]:
-    return get_today_queue(profile_name)
+    # Fetch the broad set so client-side filter toggles can show/hide
+    # applied + skipped without re-querying. Permanently-hidden rows
+    # (Hide button, rejected, ghosted) stay out of the cache.
+    return get_today_queue(
+        profile_name,
+        exclude_statuses=["hidden", "rejected", "ghosted"],
+    )
 
 
 @st.cache_data(ttl=60)
@@ -220,45 +227,147 @@ tab_queue, tab_pipeline, tab_tailor, tab_insights, tab_settings = st.tabs(
 
 # ----- Today's Queue -----
 
+POSTED_DATE_OPTIONS: dict[str, int | None] = {
+    "Last 24h": 1,
+    "Last 7 days": 7,
+    "Last 30 days": 30,
+    "All time": None,
+}
+
+GEO_TIER_OPTIONS = ["local", "regional", "domestic", "unknown", "foreign"]
+GEO_TIER_DEFAULT = ["local", "regional", "domestic", "unknown"]
+FIT_TIER_OPTIONS = ["high_fit", "stretch", "long_shot"]
+FIT_TIER_LABELS = {
+    "high_fit": "🎯 high fit",
+    "stretch": "🎲 stretch",
+    "long_shot": "🌙 long shot",
+}
+
+
+def _on_queue_status_change(
+    item_id: int, profile_id: int | None, status: str
+) -> None:
+    """Click-handler used by render_queue_row. Persists the status,
+    invalidates the queue cache, and re-runs the script."""
+    if _safe_set_status(item_id, profile_id, status):
+        st.rerun()
+
+
 with tab_queue:
+    with st.expander("Filters", expanded=False):
+        row1 = st.columns([1, 2, 2])
+        with row1[0]:
+            min_score = st.slider("Min score", 0, 100, 1, key="queue_min_score")
+        with row1[1]:
+            search = st.text_input(
+                "Search title or company",
+                "",
+                key="queue_search",
+                placeholder="e.g. analyst, python, acme",
+            )
+        with row1[2]:
+            posted_label = st.selectbox(
+                "Posted",
+                list(POSTED_DATE_OPTIONS.keys()),
+                index=2,  # default = Last 30 days
+                key="queue_posted_after",
+            )
+        posted_after_days = POSTED_DATE_OPTIONS[posted_label]
+
+        row2 = st.columns([2, 2, 2])
+        with row2[0]:
+            selected_geo_tiers = st.multiselect(
+                "Geo tier",
+                GEO_TIER_OPTIONS,
+                default=GEO_TIER_DEFAULT,
+                key="queue_geo_tiers",
+            )
+        with row2[1]:
+            selected_fit_tiers = st.multiselect(
+                "Fit tier",
+                FIT_TIER_OPTIONS,
+                default=FIT_TIER_OPTIONS,
+                format_func=lambda t: FIT_TIER_LABELS.get(t, t),
+                key="queue_fit_tiers",
+            )
+        with row2[2]:
+            # Sources is built from the queue itself — populated below.
+            sources_placeholder = st.empty()
+
+        row3 = st.columns([2, 2, 2])
+        with row3[0]:
+            hide_applied = st.toggle(
+                "Hide already-applied", value=True, key="queue_hide_applied"
+            )
+        with row3[1]:
+            hide_skipped = st.toggle(
+                "Hide already-skipped", value=True, key="queue_hide_skipped"
+            )
+
     try:
         queue = _cached_queue(profile_name)
     except Exception as exc:
         st.error(f"Failed to load queue: {exc}")
         queue = []
 
-    fcol1, fcol2, fcol3 = st.columns([1, 2, 2])
-    with fcol1:
-        min_score = st.slider("Min score", 0, 100, 1, key="queue_min_score")
     sources_avail = sorted({i["source_name"] for i in queue}) or [""]
-    with fcol2:
+    with sources_placeholder.container():
         selected_sources = st.multiselect(
             "Sources",
             sources_avail,
             default=sources_avail,
             key="queue_sources",
         )
-    with fcol3:
-        search = st.text_input(
-            "Search title or company",
-            "",
-            key="queue_search",
-            placeholder="e.g. analyst, python, acme",
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    posted_cutoff = (
+        now - timedelta(days=posted_after_days)
+        if posted_after_days is not None
+        else None
+    )
+
+    def _passes_filters(it: dict) -> bool:
+        if (it.get("score") or 0) < min_score:
+            return False
+        if it.get("source_name") not in selected_sources:
+            return False
+        if search:
+            s = search.lower()
+            if (
+                s not in (it.get("title") or "").lower()
+                and s not in (it.get("company") or "").lower()
+            ):
+                return False
+        if (it.get("geo_tier") or "unknown") not in selected_geo_tiers:
+            return False
+        if (it.get("fit_tier") or "stretch") not in selected_fit_tiers:
+            return False
+        if posted_cutoff is not None:
+            posted_at = it.get("posted_at")
+            # NULL posted_at is kept (unknown != stale)
+            if posted_at is not None and posted_at < posted_cutoff:
+                return False
+        if hide_applied and it.get("current_status") == "applied":
+            return False
+        if hide_skipped and it.get("current_status") == "skipped":
+            return False
+        return True
+
+    filtered = [i for i in queue if _passes_filters(i)]
+
+    tier_counts = {t: 0 for t in FIT_TIER_OPTIONS}
+    for it in filtered:
+        tier_counts[it.get("fit_tier") or "stretch"] = (
+            tier_counts.get(it.get("fit_tier") or "stretch", 0) + 1
         )
 
-    filtered = [
-        i
-        for i in queue
-        if i["score"] >= min_score
-        and i["source_name"] in selected_sources
-        and (
-            not search
-            or search.lower() in (i["title"] or "").lower()
-            or search.lower() in (i["company"] or "").lower()
-        )
+    summary_bits = [
+        f"{len(filtered)} opportunities",
+        f"{FIT_TIER_LABELS['high_fit']} {tier_counts['high_fit']}",
+        f"{FIT_TIER_LABELS['stretch']} {tier_counts['stretch']}",
+        f"{FIT_TIER_LABELS['long_shot']} {tier_counts['long_shot']}",
     ]
-
-    st.subheader(f"{len(filtered)} new opportunities")
+    st.subheader(" • ".join(summary_bits))
 
     if not queue:
         st.info(
@@ -270,73 +379,7 @@ with tab_queue:
         st.info("No items match your current filters.")
 
     for item in filtered:
-        with st.container(border=True):
-            head_l, head_r = st.columns([1, 11])
-            with head_l:
-                st.markdown(_score_badge(item["score"]))
-            with head_r:
-                similar = item.get("similar_count", 0)
-                badges = ""
-                if similar > 0:
-                    badges += f" :gray-background[+{similar} similar]"
-                if item.get("ghost_warning"):
-                    badges += " :orange-background[⚠️ might be ghost listing]"
-                if item["url"]:
-                    st.markdown(
-                        f"**[{item['title']}]({item['url']})**{badges}"
-                    )
-                else:
-                    st.markdown(f"**{item['title']}**{badges}")
-                meta_parts = [
-                    p
-                    for p in [
-                        item["company"],
-                        item["location"],
-                        f"posted {_fmt_date(item['posted_at'])}",
-                        item["source_name"],
-                    ]
-                    if p
-                ]
-                st.caption(" • ".join(meta_parts))
-
-                geo_tier = item.get("geo_tier")
-                if geo_tier == "local":
-                    st.markdown(":green-background[📍 local]")
-                elif geo_tier == "regional":
-                    st.markdown(":blue-background[📍 regional]")
-
-            if item["top_matched_terms"]:
-                pills = " ".join(
-                    f":gray-background[{t}]" for t in item["top_matched_terms"]
-                )
-                st.markdown(pills)
-
-            btn_int, btn_app, btn_skip, btn_hide, _, status_col = st.columns(
-                [1, 1, 1, 1, 1, 4]
-            )
-            base = f"q-{item['item_id']}"
-            with btn_int:
-                if st.button("Interested", key=f"{base}-int", use_container_width=True):
-                    if _safe_set_status(item["item_id"], profile_id, "interested"):
-                        st.rerun()
-            with btn_app:
-                if st.button("Applied", key=f"{base}-app", use_container_width=True):
-                    if _safe_set_status(item["item_id"], profile_id, "applied"):
-                        st.rerun()
-            with btn_skip:
-                if st.button("Skip", key=f"{base}-skip", use_container_width=True):
-                    if _safe_set_status(item["item_id"], profile_id, "skipped"):
-                        st.rerun()
-            with btn_hide:
-                if st.button("Hide", key=f"{base}-hide", use_container_width=True):
-                    if _safe_set_status(item["item_id"], profile_id, "hidden"):
-                        st.rerun()
-            with status_col:
-                if item["current_status"]:
-                    label = PIPELINE_LABELS.get(
-                        item["current_status"], item["current_status"]
-                    )
-                    st.markdown(f"<small>Status: {label}</small>", unsafe_allow_html=True)
+        render_queue_row(item, profile_id, _on_queue_status_change)
 
 
 # ----- Pipeline -----

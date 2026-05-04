@@ -17,6 +17,7 @@ from db.models import Profile
 DEFAULT_PROFILE_META = {
     "allowed_locations": ["US", "Remote-US", "Remote-Global", "Unknown"],
     "allowed_geo_tiers": ["local", "regional", "domestic", "unknown"],
+    "allowed_fit_tiers": ["high_fit", "stretch", "long_shot"],
     "english_only": True,
     "posted_after_days": 30,
     "hide_citizenship_required": True,

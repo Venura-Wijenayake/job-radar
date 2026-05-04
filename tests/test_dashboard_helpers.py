@@ -523,6 +523,131 @@ def test_collapse_handles_empty_company(basic_setup):
     assert all(r["similar_count"] == 0 for r in result)
 
 
+def test_get_today_queue_includes_fit_tier_in_results(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Data Analyst", body="great role")
+    b = _add_item(sid, "b", "Senior Staff Data Analyst", body="10+ years required")
+    _add_score(a, pid, 85)
+    _add_score(b, pid, 85)
+
+    result = get_today_queue("p1")
+    by_id = {r["item_id"]: r for r in result}
+    # Plain title, score 85 → high_fit
+    assert by_id[a]["fit_tier"] == "high_fit"
+    # Two title flags + body experience flag → long_shot
+    assert by_id[b]["fit_tier"] == "long_shot"
+
+
+def test_get_today_queue_filter_by_fit_tier_excludes_others(basic_setup):
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Data Analyst", company="Acme")          # high_fit
+    b = _add_item(sid, "b", "Senior Data Analyst", company="Beta")    # stretch
+    c = _add_item(sid, "c", "Senior Staff Analyst",
+                  body="10+ years required", company="Gamma")          # long_shot
+    _add_score(a, pid, 85)
+    _add_score(b, pid, 85)
+    _add_score(c, pid, 85)
+
+    result = get_today_queue("p1", allowed_fit_tiers=["high_fit"])
+    assert {r["item_id"] for r in result} == {a}
+
+
+def test_get_today_queue_default_includes_all_fit_tiers(basic_setup):
+    """No profile metadata, no explicit param — all three tiers appear."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    a = _add_item(sid, "a", "Data Analyst", company="Acme")          # high_fit
+    b = _add_item(sid, "b", "Senior Data Analyst", company="Beta")   # stretch
+    c = _add_item(sid, "c", "Senior Staff Analyst",
+                  body="10+ years required", company="Gamma")         # long_shot
+    _add_score(a, pid, 85)
+    _add_score(b, pid, 85)
+    _add_score(c, pid, 85)
+
+    result = get_today_queue("p1")
+    assert {r["item_id"] for r in result} == {a, b, c}
+    tiers = {r["fit_tier"] for r in result}
+    assert tiers == {"high_fit", "stretch", "long_shot"}
+
+
+def test_get_today_queue_fit_tier_filter_uses_profile_metadata(basic_setup):
+    """When allowed_fit_tiers param is None, profile metadata controls."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    with get_session() as session:
+        profile = session.execute(
+            select(Profile).where(Profile.id == pid)
+        ).scalar_one()
+        profile.metadata_json = {"allowed_fit_tiers": ["high_fit"]}
+        session.commit()
+
+    a = _add_item(sid, "a", "Data Analyst", company="Acme")          # high_fit
+    b = _add_item(sid, "b", "Senior Data Analyst", company="Beta")   # stretch
+    _add_score(a, pid, 85)
+    _add_score(b, pid, 85)
+
+    result = get_today_queue("p1")
+    assert {r["item_id"] for r in result} == {a}
+
+
+def test_get_today_queue_includes_top_strong_and_top_missing(basic_setup):
+    """top_strong = JD keywords that are in resume criteria, ranked by
+    JD freq × importance. top_missing = JD keywords NOT in criteria,
+    same ranking. Each truncated to 3."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    _add_criterion(pid, "python", kind="skill")
+    _add_criterion(pid, "sql", kind="skill")
+    _add_criterion(pid, "pandas", kind="skill")
+
+    iid = _add_item(sid, "x", "Data Analyst", company="Acme")
+    _add_score(iid, pid, 70)
+    _add_keyword_extract(
+        iid,
+        [
+            {"term": "python", "frequency": 5, "importance": 2.0},   # 10
+            {"term": "sql", "frequency": 4, "importance": 1.5},      # 6
+            {"term": "pandas", "frequency": 1, "importance": 1.0},   # 1
+            {"term": "tableau", "frequency": 6, "importance": 2.0},  # 12
+            {"term": "snowflake", "frequency": 3, "importance": 2.0},# 6
+            {"term": "dbt", "frequency": 1, "importance": 1.0},      # 1
+        ],
+    )
+
+    result = get_today_queue("p1")
+    assert len(result) == 1
+    row = result[0]
+    # Strong terms sorted desc by rank: python(10), sql(6), pandas(1)
+    assert row["top_strong"] == ["python", "sql", "pandas"]
+    # Missing terms sorted desc by rank: tableau(12), snowflake(6), dbt(1)
+    assert row["top_missing"] == ["tableau", "snowflake", "dbt"]
+
+
+def test_get_today_queue_top_strong_missing_default_empty_when_no_extracts(basic_setup):
+    """Items without keyword_extracts get empty lists rather than missing keys."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    iid = _add_item(sid, "x", "Data Analyst")
+    _add_score(iid, pid, 70)
+
+    result = get_today_queue("p1")
+    assert result[0]["top_strong"] == []
+    assert result[0]["top_missing"] == []
+
+
+def test_get_today_queue_posted_after_24h_filter(basic_setup):
+    """posted_after_days=1 keeps items posted within the last day,
+    drops items older than 24h. Items with NULL posted_at are kept."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    fresh = _now() - timedelta(hours=12)
+    yesterday = _now() - timedelta(days=2)
+    a = _add_item(sid, "a", "Fresh", company="Acme", posted_at=fresh)
+    b = _add_item(sid, "b", "Old", company="Beta", posted_at=yesterday)
+    c = _add_item(sid, "c", "NoDate", company="Gamma")  # NULL posted_at
+    _add_score(a, pid, 70)
+    _add_score(b, pid, 60)
+    _add_score(c, pid, 50)
+
+    result = get_today_queue("p1", posted_after_days=1)
+    assert {r["item_id"] for r in result} == {a, c}
+
+
 def test_get_today_queue_includes_top_3_matched_terms(basic_setup):
     sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
     iid = _add_item(sid, "x", "Item X")
