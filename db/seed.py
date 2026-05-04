@@ -42,6 +42,12 @@ DEFAULT_SOURCES = [
         "url": "https://boards-api.greenhouse.io/v1/boards",
         "enabled": True,
     },
+    {
+        "name": "Lever",
+        "type": "api",
+        "url": "https://api.lever.co/v0/postings",
+        "enabled": True,
+    },
 ]
 
 
