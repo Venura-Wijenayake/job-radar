@@ -374,8 +374,11 @@ def test_skill_density_excludes_anti_keyword_criteria(basic_setup):
     # one real skill the body doesn't contain
     _add_criterion(pid, "python", kind="skill", weight=3)
 
+    # Phase 4.8b: title kept non-senior so the row survives the
+    # eligibility hard-filter. The exclude-density behaviour is what we
+    # actually want to assert here, and it's body-only.
     iid = _add_item(
-        sid, "x", "Senior Data Analyst",
+        sid, "x", "Data Analyst",
         body="Senior-level role for a principal contributor.",
     )
     _add_score(iid, pid, 70)
@@ -596,8 +599,8 @@ def test_get_today_queue_english_only_drops_other(basic_setup):
 
 def test_collapse_duplicates_groups_by_title_company(basic_setup):
     sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
-    a = _add_item(sid, "a", "Lead Analytics Engineer", company="Monzo")
-    b = _add_item(sid, "b", "Lead Analytics Engineer", company="Monzo")
+    a = _add_item(sid, "a", "Analytics Engineer", company="Monzo")
+    b = _add_item(sid, "b", "Analytics Engineer", company="Monzo")
     c = _add_item(sid, "c", "Data Analyst", company="Acme")
     _add_score(a, pid, 80)
     _add_score(b, pid, 70)
@@ -619,8 +622,8 @@ def test_collapse_duplicates_groups_by_title_company(basic_setup):
 
 def test_collapse_duplicates_keeps_highest_score(basic_setup):
     sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
-    a = _add_item(sid, "a", "Lead Engineer", company="Monzo")
-    b = _add_item(sid, "b", "Lead Engineer", company="Monzo")
+    a = _add_item(sid, "a", "Software Engineer", company="Monzo")
+    b = _add_item(sid, "b", "Software Engineer", company="Monzo")
     _add_score(a, pid, 50)
     _add_score(b, pid, 80)
 
@@ -634,8 +637,8 @@ def test_collapse_duplicates_keeps_highest_score(basic_setup):
 
 def test_collapse_duplicates_off_returns_all(basic_setup):
     sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
-    a = _add_item(sid, "a", "Lead Engineer", company="Monzo")
-    b = _add_item(sid, "b", "Lead Engineer", company="Monzo")
+    a = _add_item(sid, "a", "Software Engineer", company="Monzo")
+    b = _add_item(sid, "b", "Software Engineer", company="Monzo")
     _add_score(a, pid, 80)
     _add_score(b, pid, 70)
 
@@ -661,15 +664,19 @@ def test_collapse_handles_empty_company(basic_setup):
 def test_get_today_queue_includes_fit_tier_in_results(basic_setup):
     sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
     a = _add_item(sid, "a", "Data Analyst", body="great role")
-    b = _add_item(sid, "b", "Senior Staff Data Analyst", body="10+ years required")
+    # Phase 4.8b: with seniority hard-exclusion, "Senior" titles never
+    # reach the queue at all. To still exercise the long_shot tier we
+    # use a low score (<50) on a non-senior title — fit_tier produces
+    # long_shot from the score band.
+    b = _add_item(sid, "b", "Data Analyst", body="great role")
     _add_score(a, pid, 85)
-    _add_score(b, pid, 85)
+    _add_score(b, pid, 40)
 
     result = get_today_queue("p1")
     by_id = {r["item_id"]: r for r in result}
     # Plain title, score 85 → high_fit
     assert by_id[a]["fit_tier"] == "high_fit"
-    # Two title flags + body experience flag → long_shot
+    # Score < 50 → long_shot (independent of yellow flags)
     assert by_id[b]["fit_tier"] == "long_shot"
 
 
@@ -688,15 +695,20 @@ def test_get_today_queue_filter_by_fit_tier_excludes_others(basic_setup):
 
 
 def test_get_today_queue_default_includes_all_fit_tiers(basic_setup):
-    """No profile metadata, no explicit param — all three tiers appear."""
+    """No profile metadata, no explicit param — all three tiers appear.
+
+    Phase 4.8b: senior-titled fixtures got hard-excluded by the
+    eligibility filter, so this test now uses score bands to land each
+    item in a different fit_tier (>=80 high_fit, 50-79 stretch, <50
+    long_shot) without relying on senior title markers.
+    """
     sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
-    a = _add_item(sid, "a", "Data Analyst", company="Acme")          # high_fit
-    b = _add_item(sid, "b", "Senior Data Analyst", company="Beta")   # stretch
-    c = _add_item(sid, "c", "Senior Staff Analyst",
-                  body="10+ years required", company="Gamma")         # long_shot
+    a = _add_item(sid, "a", "Data Analyst", company="Acme")           # high_fit
+    b = _add_item(sid, "b", "Data Analyst", company="Beta")           # stretch
+    c = _add_item(sid, "c", "Data Analyst", company="Gamma")          # long_shot
     _add_score(a, pid, 85)
-    _add_score(b, pid, 85)
-    _add_score(c, pid, 85)
+    _add_score(b, pid, 60)
+    _add_score(c, pid, 40)
 
     result = get_today_queue("p1")
     assert {r["item_id"] for r in result} == {a, b, c}
@@ -748,10 +760,14 @@ def test_top_strong_filters_stopwords(basic_setup):
 
 
 def test_top_missing_filters_title_words(basic_setup):
-    """Missing chips for an item titled 'Data Analyst II' at Brex
-    must NOT include 'data', 'analyst' (title), or 'brex' (company)."""
+    """Missing chips for an item titled 'Data Analyst' at Brex must NOT
+    include 'data', 'analyst' (title), or 'brex' (company)."""
     sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
-    iid = _add_item(sid, "x", "Data Analyst II", company="Brex")
+    # Phase 4.8b: title trimmed from "Data Analyst II" — the level-II
+    # marker now triggers the seniority hard-exclude, but the actual
+    # behaviour under test (chip filter dropping company/title words)
+    # is unchanged.
+    iid = _add_item(sid, "x", "Data Analyst", company="Brex")
     _add_score(iid, pid, 70)
     _add_keyword_extract(
         iid,
@@ -834,6 +850,59 @@ def test_get_today_queue_includes_top_strong_and_top_missing(basic_setup):
     assert row["top_strong"] == ["python", "sql", "pandas"]
     # Missing terms sorted desc by rank: tableau(12), snowflake(6), dbt(1)
     assert row["top_missing"] == ["tableau", "snowflake", "dbt"]
+
+
+def test_chip_stopwords_filters_jersey_city_nj(basic_setup):
+    """Phase 4.8b: location words bleeding from JDs ('jersey', 'city',
+    'nj') are now in the chip-stopword set and shouldn't render as
+    missing-skill chips."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    iid = _add_item(sid, "x", "Data Analyst", company="Acme")
+    _add_score(iid, pid, 70)
+    _add_keyword_extract(
+        iid,
+        [
+            {"term": "jersey", "frequency": 9, "importance": 2.0},
+            {"term": "city", "frequency": 8, "importance": 2.0},
+            {"term": "nj", "frequency": 7, "importance": 2.0},
+            {"term": "tools", "frequency": 6, "importance": 2.0},
+            {"term": "snowflake", "frequency": 5, "importance": 2.0},
+            {"term": "tableau", "frequency": 4, "importance": 2.0},
+        ],
+    )
+
+    result = get_today_queue("p1")
+    missing = result[0]["top_missing"]
+    assert "jersey" not in missing
+    assert "city" not in missing
+    assert "nj" not in missing
+    assert "tools" not in missing
+
+
+def test_chip_stopwords_keeps_real_skills_like_snowflake(basic_setup):
+    """Phase 4.8b regression: the expanded stopword list MUST NOT eat
+    real-skill chips. Snowflake / tableau / dbt / etc. remain useful
+    'missing-skill' signal when present in the JD."""
+    sid, pid = basic_setup["source_id"], basic_setup["profile_id"]
+    iid = _add_item(sid, "x", "Data Analyst", company="Acme")
+    _add_score(iid, pid, 70)
+    _add_keyword_extract(
+        iid,
+        [
+            {"term": "snowflake", "frequency": 9, "importance": 2.0},
+            {"term": "tableau", "frequency": 8, "importance": 2.0},
+            {"term": "dbt", "frequency": 7, "importance": 2.0},
+            {"term": "looker", "frequency": 6, "importance": 2.0},
+            {"term": "airflow", "frequency": 5, "importance": 2.0},
+        ],
+    )
+
+    result = get_today_queue("p1")
+    missing = set(result[0]["top_missing"])
+    # The top 3 by rank should all be real skills, in rank order.
+    assert "snowflake" in missing
+    assert "tableau" in missing
+    assert "dbt" in missing
 
 
 def test_get_today_queue_top_strong_missing_default_empty_when_no_extracts(basic_setup):

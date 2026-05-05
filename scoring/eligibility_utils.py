@@ -10,8 +10,15 @@ work in the US" phrasing returns False even when a restrictive-pattern
 substring is also present. Permanent residents and US-authorized non-
 citizens fit the user's eligibility, so these JDs shouldn't get filtered
 out as citizenship-required.
+
+Phase 4.8b adds detect_seniority — a title-only check that returns
+"junior", "senior", or "mid". Used by land_score to hard-exclude items
+whose title carries explicit senior markers. Body mentions of "senior"
+don't trigger; only the title is inspected.
 """
 from __future__ import annotations
+
+import re
 
 from .text_utils import term_pattern
 
@@ -138,3 +145,79 @@ def detect_license_required(text: str | None) -> bool:
     if not text:
         return False
     return _has_any(text, LICENSE_PATTERNS)
+
+
+# ----- Phase 4.8b: title-only seniority detection -----
+
+# Lowercase patterns matched against the lowercased title. The
+# user is an entry-level pivot (CS grad, IT support background) —
+# titles carrying these markers are out of reach regardless of
+# match_score, so land_score zeroes them out via eligibility_mult.
+_SENIORITY_TITLE_PATTERNS: tuple[str, ...] = (
+    r"\bsenior\b",
+    r"\bsr\.?\b",
+    r"\blead\b",
+    r"\bprincipal\b",
+    r"\bstaff\b",
+    r"\bdirector\b",
+    r"\bmanager\b",
+    r"\bmanaging\b",
+    r"\bhead\s+of\b",
+    r"\bvp\b",
+    r"\bvice\s+president\b",
+    r"\bchief\b",
+)
+
+# Roman numerals II / III / IV are common seniority suffixes
+# ("Data Analyst II", "Engineer III"). Matched case-sensitively
+# against the original-cased title to avoid false positives from
+# random caps in body text or all-caps titles. V is intentionally
+# excluded — too easy to collide with letters in a name or acronym.
+_ROMAN_NUMERAL_PATTERNS: tuple[str, ...] = (
+    r"\bII\b",
+    r"\bIII\b",
+    r"\bIV\b",
+)
+
+# Junior / entry-level overrides. When any of these match, the title
+# is classified as "junior" even if a senior marker also appears
+# (e.g. "Sr SWE Intern" → kept as junior).
+_JUNIOR_OVERRIDE_PATTERNS: tuple[str, ...] = (
+    r"\bjunior\b",
+    r"\bjr\.?\b",
+    r"\bassociate\b",
+    r"\bintern\b",
+    r"\binternship\b",
+    r"\bentry[\s-]?level\b",
+    r"\btrainee\b",
+    r"\bgraduate\b",
+    r"\bnew[\s-]?grad\b",
+    r"\bapprentice\b",
+)
+
+
+def detect_seniority(title: str | None) -> str:
+    """Classify ``title`` as ``"junior"``, ``"senior"``, or ``"mid"``.
+
+    Junior markers (intern, associate, junior, ...) override senior
+    markers — handles edge cases like "Sr SWE Intern" where the role
+    is genuinely entry-level despite carrying "Sr" in the title.
+
+    Returns ``"mid"`` for titles with no markers either way, and for
+    ``None`` / empty input.
+    """
+    if not title:
+        return "mid"
+    title_lower = title.lower()
+
+    if any(re.search(p, title_lower) for p in _JUNIOR_OVERRIDE_PATTERNS):
+        return "junior"
+
+    if any(re.search(p, title_lower) for p in _SENIORITY_TITLE_PATTERNS):
+        return "senior"
+
+    # Roman numerals checked against original casing, not lowercased.
+    if any(re.search(p, title) for p in _ROMAN_NUMERAL_PATTERNS):
+        return "senior"
+
+    return "mid"

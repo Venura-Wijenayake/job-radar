@@ -264,6 +264,43 @@ def test_eligibility_mult_handles_none_title():
     assert mult == 1.0
 
 
+# ----- Phase 4.8b: seniority hard-exclusion -----
+
+
+def test_eligibility_zero_when_title_is_senior():
+    """Phase 4.8b: senior titles drop to eligibility=0 even when no
+    blocklist pattern matches."""
+    mult, reason = _compute_eligibility_mult("Senior Data Analyst", _blocklist())
+    assert mult == 0.0
+    assert reason == "senior title"
+
+    mult, reason = _compute_eligibility_mult("Data Analyst II", _blocklist())
+    assert mult == 0.0
+    assert reason == "senior title"
+
+    mult, reason = _compute_eligibility_mult("Lead Engineer", _blocklist())
+    assert mult == 0.0
+
+
+def test_eligibility_passes_when_title_is_intern():
+    """Junior overrides keep 'Sr SWE Intern' eligible."""
+    mult, reason = _compute_eligibility_mult("Sr SWE Intern", _blocklist())
+    assert mult == 1.0
+    assert reason is None
+
+    mult, reason = _compute_eligibility_mult("Junior Data Analyst", _blocklist())
+    assert mult == 1.0
+
+
+def test_eligibility_passes_when_body_says_senior_but_title_doesnt():
+    """Only title is inspected for seniority — JD body language doesn't
+    drop the item. (compute_eligibility_mult takes only the title, so
+    body content is structurally excluded from the seniority check.)"""
+    mult, reason = _compute_eligibility_mult("Data Analyst", _blocklist())
+    assert mult == 1.0
+    assert reason is None
+
+
 # ----- salary -----
 
 

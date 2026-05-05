@@ -242,7 +242,13 @@ def render_queue_row(
                 st.caption(f"Ghost score: {ghost} / 100")
             body = (item.get("body") or "").strip()
             if body:
-                excerpt = body[:1200]
-                if len(body) > 1200:
-                    excerpt += " …"
-                st.text(excerpt)
+                # Phase 4.8b — render the full JD; long postings go
+                # into a fixed-height scrollable container so the row
+                # doesn't blow up vertically. ``st.text`` keeps any
+                # asterisks / brackets in the cleaned body verbatim
+                # rather than letting markdown reflow them.
+                if len(body) > 1500:
+                    with st.container(height=400, border=False):
+                        st.text(body)
+                else:
+                    st.text(body)

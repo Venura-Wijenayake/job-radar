@@ -95,6 +95,19 @@ STOPWORD_KEYWORDS: frozenset[str] = frozenset({
     "ga", "nc", "va", "ma", "or", "nv", "oh", "in", "tn",
     # Currency / pay noise
     "salary", "pay", "hour", "hourly", "year", "years", "annual",
+    # Phase 4.8b — abstract nouns observed leaking into chips during
+    # dashboard review (not real skills, just JD filler).
+    "tools", "analyses", "across", "range", "technology", "applicants",
+    "people", "customers", "platform", "validation", "title", "interview",
+    "scientists", "scientist", "including", "software", "engineering",
+    "performance", "campaign", "benefits", "internet", "coding", "google",
+    "health", "database", "modelling", "notebooks", "patent", "operations",
+    "management", "hiring", "candidates",
+    # Location words bleeding from JDs
+    "jersey", "city", "nj", "sf", "francisco", "california",
+    "york", "manhattan", "boston", "seattle",
+    # Common but uninformative
+    "financial", "ai",
 })
 
 

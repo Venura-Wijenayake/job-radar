@@ -22,6 +22,7 @@ from typing import Any
 
 import yaml
 
+from .eligibility_utils import detect_seniority
 from .text_utils import term_pattern
 
 
@@ -196,11 +197,18 @@ def _compute_experience_match(title: str | None, body: str | None) -> float:
 def _compute_eligibility_mult(
     title: str | None, blocklist: list[str]
 ) -> tuple[float, str | None]:
-    """0.0 if title contains any blocklist substring, else 1.0.
+    """0.0 if title is blocklisted *or* carries explicit senior markers,
+    else 1.0.
 
-    Substring is case-insensitive on the lowercased title — matches the
-    spec's "Note: blocklist applies via substring match against
-    lowercased title."
+    Blocklist substring match is case-insensitive on the lowercased
+    title — matches the spec's "Note: blocklist applies via substring
+    match against lowercased title."
+
+    Phase 4.8b adds a second floor: titles classified as "senior" by
+    :func:`detect_seniority` (Senior / Sr / Lead / Principal / Staff /
+    Manager / Director / II / III / IV…) are out of reach for the
+    user's entry-level pivot, so they zero out here. Junior overrides
+    inside detect_seniority keep "Sr SWE Intern" eligible.
     """
     if not title:
         return 1.0, None
@@ -211,6 +219,8 @@ def _compute_eligibility_mult(
             continue
         if pat_l in title_l:
             return 0.0, pat_l
+    if detect_seniority(title) == "senior":
+        return 0.0, "senior title"
     return 1.0, None
 
 
