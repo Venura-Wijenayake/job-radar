@@ -14,6 +14,7 @@ from scrapers.adzuna import AdzunaScraper
 from scrapers.ashby import AshbyScraper
 from scrapers.greenhouse import GreenhouseScraper
 from scrapers.hackernews_whoishiring import HackerNewsWhoIsHiringScraper
+from scrapers.himalayas import HimalayasScraper
 from scrapers.lever import LeverScraper
 from scrapers.remoteok import RemoteOKScraper
 from scrapers.remotive import RemotiveScraper
@@ -31,6 +32,7 @@ SCRAPERS = {
     "Lever": LeverScraper,
     "Ashby": AshbyScraper,
     "Workable": WorkableScraper,
+    "Himalayas": HimalayasScraper,
 }
 
 # Lowercase short aliases for the CLI single-source form.
@@ -48,6 +50,7 @@ ALIASES = {
     "lever": "Lever",
     "ashby": "Ashby",
     "workable": "Workable",
+    "himalayas": "Himalayas",
 }
 
 

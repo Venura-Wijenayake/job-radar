@@ -18,6 +18,7 @@ sources:
   WeWorkRemotely: 0.95
 
   # Aggregator (often agency reposts)
+  Himalayas: 1.05
   Adzuna: 0.90
 
 default_multiplier: 1.00

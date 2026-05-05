@@ -60,6 +60,12 @@ DEFAULT_SOURCES = [
         "url": "https://apply.workable.com/api/v1/widget/accounts",
         "enabled": True,
     },
+    {
+        "name": "Himalayas",
+        "type": "api",
+        "url": "https://himalayas.app/jobs/api",
+        "enabled": True,
+    },
 ]
 
 

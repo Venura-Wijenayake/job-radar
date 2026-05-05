@@ -489,6 +489,17 @@ def test_load_source_quality_includes_ashby_and_adzuna():
     assert cfg["sources"]["Adzuna"] <= 1.0
 
 
+def test_himalayas_source_quality_multiplier_is_1_05():
+    """Phase 4.8c — Himalayas sits in the aggregator tier above Adzuna
+    (often deduplicated direct-employer postings) but below the direct
+    ATS sources (Ashby/Greenhouse/Lever)."""
+    cfg = load_source_quality()
+    himalayas = cfg["sources"].get("Himalayas")
+    assert himalayas == 1.05
+    # Sanity: it sits between Adzuna and Lever as documented.
+    assert cfg["sources"]["Adzuna"] < himalayas < cfg["sources"]["Lever"]
+
+
 def test_load_title_blocklist_returns_lowercase_strings():
     blocked = load_title_blocklist()
     assert all(p == p.lower() for p in blocked)

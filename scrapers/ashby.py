@@ -67,6 +67,17 @@ ASHBY_DISPLAY_NAMES: dict[str, str] = {
     "daloopa": "Daloopa",
     "finegrain": "Finegrain",
     "articul8": "Articul8",
+    # Phase 4.8c additions
+    "weaviate": "Weaviate",
+    "pinecone": "Pinecone",
+    "langchain": "LangChain",
+    "llamaindex": "LlamaIndex",
+    "baseten": "Baseten",
+    "neon": "Neon",
+    "vellum": "Vellum",
+    "anyscale": "Anyscale",
+    "contextual": "Contextual AI",
+    "prefect": "Prefect",
 }
 
 

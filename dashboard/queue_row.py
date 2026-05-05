@@ -58,6 +58,9 @@ SOURCE_BADGES: dict[str, tuple[str, str]] = {
     # distinct emoji so the badge is still visually identifiable.
     # Phase 4.8a accepts the color duplication deliberately.
     "Workable": ("📋", "rainbow"),
+    # Phase 4.8c — Himalayas reuses "violet" with Ashby. Distinct emoji
+    # (🏔️) keeps the badge visually identifiable at a glance.
+    "Himalayas": ("🏔️", "violet"),
 }
 
 
